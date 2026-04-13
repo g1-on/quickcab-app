@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1004314517942",
+    "project_id": "quickcab-project",
+    "storage_bucket": "quickcab-project.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004314517942:android:9637f882c5515bca286117",
+        "android_client_info": {
+          "package_name": "com.example.quickcab_driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBVHZzABwA19oUptRBwq35yzXGn3XxXE98"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1004314517942:android:4820a506daec20d6286117",
+        "android_client_info": {
+          "package_name": "com.example.quickcab_user"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBVHZzABwA19oUptRBwq35yzXGn3XxXE98"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
