@@ -7,8 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-// Determines localhost equivalent
+// Determines localhost equivalent or reads production environment url
 String get wsUrl {
+  const envUrl = String.fromEnvironment('WS_URL');
+  if (envUrl.isNotEmpty) return envUrl;
   if (kIsWeb) return 'ws://localhost:8080/ws';
   if (!kIsWeb && Platform.isAndroid) return 'ws://10.0.2.2:8080/ws';
   return 'ws://localhost:8080/ws';

@@ -25,9 +25,10 @@ import 'dart:io';
 /// The server broadcasts ride_request to all online drivers.
 /// For a given rideId, messages are broadcast to all sockets that joined that ride.
 Future<void> main() async {
-  final server = await HttpServer.bind(InternetAddress.anyIPv4, 8080);
-  print('QuickCab realtime server listening on ws://localhost:8080/ws');
-  print('Admin panel: http://localhost:8080/admin');
+  final port = int.tryParse(Platform.environment['PORT'] ?? '8080') ?? 8080;
+  final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
+  print('QuickCab realtime server listening on port $port');
+  print('Admin panel: http://localhost:$port/admin');
 
   final rooms = <String, Set<WebSocket>>{};
   final driverSockets = <WebSocket>{};
