@@ -41,13 +41,13 @@
         }
         .grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(3, 1fr);
             gap: 24px;
         }
         .card {
             background: var(--surface);
             border-radius: 24px;
-            padding: 48px;
+            padding: 32px;
             text-decoration: none;
             color: inherit;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
@@ -120,6 +120,13 @@
                 <h2>Driver App</h2>
                 <span>Start earning and stay flexible.</span>
                 <div class="btn">Launch Driver App</div>
+            </a>
+
+            <a href="https://quickcab-matrix.onrender.com/admin" class="card">
+                <div class="icon">🛡️</div>
+                <h2>Admin Center</h2>
+                <span>Live dispatch & system monitoring.</span>
+                <div class="btn">Launch Dashboard</div>
             </a>
         </div>
     </div>
