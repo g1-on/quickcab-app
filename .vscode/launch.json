@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "User App (Localhost)",
+            "request": "launch",
+            "type": "dart",
+            "program": "quickcab_user/lib/main.dart"
+        },
+        {
+            "name": "Driver App (Localhost)",
+            "request": "launch",
+            "type": "dart",
+            "program": "quickcab_driver/lib/main.dart"
+        },
+        {
+            "name": "User App (Production)",
+            "request": "launch",
+            "type": "dart",
+            "program": "quickcab_user/lib/main.dart",
+            "toolArgs": [
+                "--dart-define=WS_URL=wss://quickcab-matrix.onrender.com/ws"
+            ]
+        },
+        {
+            "name": "Driver App (Production)",
+            "request": "launch",
+            "type": "dart",
+            "program": "quickcab_driver/lib/main.dart",
+            "toolArgs": [
+                "--dart-define=WS_URL=wss://quickcab-matrix.onrender.com/ws"
+            ]
+        },
+        {
+            "name": "Matrix Server",
+            "request": "launch",
+            "type": "dart",
+            "program": "quickcab_realtime_server.dart"
+        }
+    ]
+}

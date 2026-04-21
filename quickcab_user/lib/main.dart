@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:ui' show ImageFilter;
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -24,9 +25,8 @@ class WebSocketService {
   final StreamController<Map<String, dynamic>> _controller =
       StreamController.broadcast();
 
-  final String userId =
-      "U_${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}";
-  final String name = "Alex (User)";
+  String get userId => userState.userId;
+  String get name => userState.name;
 
   Stream<Map<String, dynamic>> get stream => _controller.stream;
 
@@ -53,7 +53,7 @@ class WebSocketService {
         'type': 'register_user',
         'userId': userId,
         'name': name,
-        'email': 'alex@example.com',
+        'email': userState.email,
         'phone': '555-0199',
         'city': 'Delhi',
       });
@@ -69,6 +69,25 @@ class WebSocketService {
     }
   }
 }
+
+class UserProfileState {
+  static final UserProfileState _instance = UserProfileState._internal();
+  factory UserProfileState() => _instance;
+  UserProfileState._internal();
+
+  String userId = "U_${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}";
+  String name = "Guest";
+  String email = "guest@example.com";
+  bool isLoggedIn = false;
+
+  void updateProfile({required String name, required String email}) {
+    this.name = name;
+    this.email = email;
+    this.isLoggedIn = true;
+  }
+}
+
+final userState = UserProfileState();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -95,19 +114,21 @@ class QuickCabApp extends StatelessWidget {
         colorScheme: const ColorScheme.light(
           primary: Colors.black,
           onPrimary: Colors.white,
-          secondary: Color(0xFFEEEEEE),
+          secondary: Color(0xFFF3F3F3),
           surface: Colors.white,
+          onSurface: Colors.black,
         ),
-        fontFamily: 'Roboto',
+        fontFamily: 'Inter',
         appBarTheme: const AppBarTheme(
           backgroundColor: Colors.white,
           foregroundColor: Colors.black,
           elevation: 0,
           centerTitle: true,
+          iconTheme: IconThemeData(color: Colors.black),
         ),
         bottomSheetTheme: const BottomSheetThemeData(
           backgroundColor: Colors.white,
-          elevation: 20,
+          elevation: 10,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
@@ -150,15 +171,81 @@ class BlackButton extends StatelessWidget {
 }
 
 class MockMapBackground extends StatelessWidget {
-  const MockMapBackground({super.key});
+  final bool showRipple;
+  const MockMapBackground({super.key, this.showRipple = true});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       height: double.infinity,
-      color: const Color(0xFFE5E5E5),
-      child: CustomPaint(painter: GridPainter()),
+      color: const Color(0xFFF9FAFB),
+      child: Stack(
+        children: [
+          CustomPaint(painter: GridPainter(), size: Size.infinite),
+          if (showRipple)
+            const Positioned(
+              top: 300,
+              left: 150,
+              child: LocationRipple(),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class LocationRipple extends StatefulWidget {
+  const LocationRipple({super.key});
+
+  @override
+  State<LocationRipple> createState() => _LocationRippleState();
+}
+
+class _LocationRippleState extends State<LocationRipple> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Container(
+          width: 100, height: 100,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 12, height: 12,
+                decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle),
+              ),
+              Opacity(
+                opacity: 1.0 - _controller.value,
+                child: Container(
+                  width: 100 * _controller.value,
+                  height: 100 * _controller.value,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blue, width: 2),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -167,8 +254,8 @@ class GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.5)
-      ..strokeWidth = 2;
+      ..color = Colors.black.withOpacity(0.03)
+      ..strokeWidth = 1.0;
 
     for (double i = 0; i < size.width; i += 50) {
       canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
@@ -176,11 +263,14 @@ class GridPainter extends CustomPainter {
     for (double i = 0; i < size.height; i += 50) {
       canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
     }
-    final boldPaint = Paint()
+    
+    final roadPaint = Paint()
       ..color = Colors.white
-      ..strokeWidth = 8;
-    canvas.drawLine(Offset(100, 0), Offset(150, size.height), boldPaint);
-    canvas.drawLine(Offset(0, 200), Offset(size.width, 250), boldPaint);
+      ..strokeWidth = 15
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(Offset(100, 0), Offset(150, size.height), roadPaint);
+    canvas.drawLine(Offset(0, 400), Offset(size.width, 450), roadPaint);
   }
 
   @override
@@ -189,65 +279,66 @@ class GridPainter extends CustomPainter {
 
 //// ================= LOGIN =================
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final emailController = TextEditingController();
+  final passController = TextEditingController();
+
+  void _handleLogin() {
+    if (emailController.text.isNotEmpty && passController.text.isNotEmpty) {
+      // Mock login - if email matches guest, use alex data, else use entered
+      if (emailController.text == "alex@test.com") {
+        userState.updateProfile(name: "Alex User", email: "alex@test.com");
+      } else {
+        userState.updateProfile(name: "User", email: emailController.text);
+      }
+      ws.connect();
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter credentials")));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Expanded(
-                child: Center(
-                  child: Text(
-                    "QuickCab",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -1.5,
-                    ),
-                  ),
-                ),
-              ),
-              const Text(
-                "Get there,\nfast and safely.",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  height: 1.2,
-                ),
-              ),
+              const Text("QuickCab", style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: -1.5)),
               const SizedBox(height: 48),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                  minimumSize: const Size(double.infinity, 56),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text(
-                  "Get Started",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                onPressed: () {
-                  // Connect to Realtime Server upon login
-                  ws.connect();
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => const HomeScreen()),
-                  );
-                },
-              ),
+              const Text("Welcome back", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 32),
+              QuickCabTextField(controller: emailController, hint: "Email", icon: Icons.email_outlined),
               const SizedBox(height: 16),
+              QuickCabTextField(controller: passController, hint: "Password", icon: Icons.lock_outline, isPassword: true),
+              const SizedBox(height: 32),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                onPressed: _handleLogin,
+                child: const Text("Log In", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text("Don't have an account? "),
+                  GestureDetector(
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SignupScreen())),
+                    child: const Text("Sign Up", style: TextStyle(fontWeight: FontWeight.bold, decoration: TextDecoration.underline)),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -256,12 +347,116 @@ class LoginScreen extends StatelessWidget {
   }
 }
 
+class SignupScreen extends StatefulWidget {
+  const SignupScreen({super.key});
+
+  @override
+  State<SignupScreen> createState() => _SignupScreenState();
+}
+
+class _SignupScreenState extends State<SignupScreen> {
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final passController = TextEditingController();
+
+  void _handleSignup() {
+    if (nameController.text.isNotEmpty && emailController.text.isNotEmpty) {
+      userState.updateProfile(name: nameController.text, email: emailController.text);
+      ws.connect();
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields")));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(backgroundColor: Colors.white, elevation: 0, iconTheme: const IconThemeData(color: Colors.black)),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text("Create Account", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: -1)),
+              const SizedBox(height: 32),
+              QuickCabTextField(controller: nameController, hint: "Full Name", icon: Icons.person_outline),
+              const SizedBox(height: 16),
+              QuickCabTextField(controller: emailController, hint: "Email address", icon: Icons.email_outlined),
+              const SizedBox(height: 16),
+              QuickCabTextField(controller: passController, hint: "Password", icon: Icons.lock_outline, isPassword: true),
+              const SizedBox(height: 32),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                onPressed: _handleSignup,
+                child: const Text("Create Profile", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class QuickCabTextField extends StatelessWidget {
+  final TextEditingController controller;
+  final String hint;
+  final IconData icon;
+  final bool isPassword;
+
+  const QuickCabTextField({super.key, required this.controller, required this.hint, required this.icon, this.isPassword = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      obscureText: isPassword,
+      decoration: InputDecoration(
+        hintText: hint,
+        prefixIcon: Icon(icon, color: Colors.black),
+        filled: true,
+        fillColor: const Color(0xFFF3F3F3),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        contentPadding: const EdgeInsets.symmetric(vertical: 18),
+      ),
+    );
+  }
+}
+
 //// ================= HOME =================
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
-  void _openBookingSheet(BuildContext context) {
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _checkLocation();
+  }
+
+  void _checkLocation() {
+    // Premium location permission sheet simulation
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) {
+        showModalBottomSheet(
+          context: context,
+          isDismissible: false,
+          enableDrag: false,
+          builder: (context) => const LocationPermissionSheet(),
+        );
+      }
+    });
+  }
+
+  void _openBookingSheet() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -273,106 +468,178 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
           const MockMapBackground(),
           Positioned(
-            top: 50,
+            top: MediaQuery.of(context).padding.top + 10,
             left: 20,
-            right: 20,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const CircleAvatar(
-                  backgroundColor: Colors.white,
-                  radius: 24,
-                  child: Icon(Icons.menu, color: Colors.black),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                      ),
-                    ],
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.star, size: 16, color: Colors.amber),
-                      SizedBox(width: 4),
-                      Text(
-                        "4.9",
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+            child: GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen())),
+              child: const CircleAvatar(
+                radius: 26,
+                backgroundColor: Colors.black,
+                child: Icon(Icons.person_rounded, color: Colors.white, size: 28),
+              ),
             ),
           ),
           Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
+            bottom: 0, left: 0, right: 0,
             child: Container(
               padding: const EdgeInsets.all(24),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 20,
-                    offset: Offset(0, -5),
-                  ),
-                ],
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 25, offset: Offset(0, -10))],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    "Good morning",
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 24),
+                  const Text("Where to?", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
+                  const SizedBox(height: 20),
                   GestureDetector(
-                    onTap: () => _openBookingSheet(context),
+                    onTap: _openBookingSheet,
                     child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF3F3F3),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.search, size: 28),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(16)),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.search_rounded, color: Colors.black, size: 24),
                           SizedBox(width: 12),
-                          Text(
-                            "Where to?",
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black,
-                            ),
-                          ),
+                          Text("Enter destination", style: TextStyle(fontSize: 18, color: Colors.black54, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildFixedRouteChip("Delhi"),
+                      _buildFixedRouteChip("Agra"),
+                      _buildFixedRouteChip("Jaipur"),
+                    ],
+                  ),
                 ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFixedRouteChip(String city) {
+    return ActionChip(
+      label: Text(city),
+      backgroundColor: const Color(0xFFF3F3F3),
+      onPressed: _openBookingSheet,
+      labelStyle: const TextStyle(fontWeight: FontWeight.w900, color: Colors.black),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    );
+  }
+}
+
+class LocationPermissionSheet extends StatelessWidget {
+  const LocationPermissionSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.location_on_rounded, size: 64, color: Colors.blue),
+          const SizedBox(height: 24),
+          const Text("Location Access", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 12),
+          const Text("Our maps work best when we know where you are. This helps drivers find you faster.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 15)),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Allow Access", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Maybe Later", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+  }
+}
+
+class ProfileScreen extends StatelessWidget {
+  const ProfileScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(title: const Text("Profile", style: TextStyle(fontWeight: FontWeight.w900))),
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Row(
+            children: [
+              const CircleAvatar(radius: 40, backgroundColor: Color(0xFFF3F3F3), child: Icon(Icons.person, size: 40, color: Colors.black)),
+              const SizedBox(width: 20),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(userState.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                  Text(userState.email, style: const TextStyle(color: Colors.grey)),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 48),
+          const Text("SAVED PLACES", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.grey)),
+          const SizedBox(height: 16),
+          _buildProfileItem(context, Icons.home_rounded, "Home", "Delhi", onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Home location set to Delhi")));
+          }),
+          _buildProfileItem(context, Icons.work_rounded, "Work", "Noida Sector 62", onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Work location set to Noida")));
+          }),
+          const SizedBox(height: 32),
+          const Text("ACCOUNT", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.grey)),
+          const SizedBox(height: 16),
+          _buildProfileItem(context, Icons.payments_rounded, "Payment Methods", "Uber Cash, UPI", onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment methods management coming soon")));
+          }),
+          _buildProfileItem(context, Icons.history_rounded, "Ride History", "24 recorded trips", onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Loading ride history...")));
+          }),
+          _buildProfileItem(context, Icons.logout_rounded, "Log Out", "End session", color: Colors.red, onTap: () {
+            Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileItem(BuildContext context, IconData icon, String title, String sub, {Color? color, VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: color ?? Colors.black, size: 28),
+            const SizedBox(width: 20),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: color)),
+                Text(sub, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+              ]),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+          ],
+        ),
       ),
     );
   }
@@ -391,15 +658,29 @@ class _BookingSheetState extends State<BookingSheet> {
   final priceController = TextEditingController();
   final cities = ["Delhi", "Agra", "Jaipur", "Noida", "Gurugram"];
 
+  String vehicleType = "Uber Go";
+  String paymentMethod = "Cash";
+  String profile = "For Me";
+
+  int getEstimatedFare() {
+    // Basic route pricing matrix (One-way)
+    Map<String, Map<String, int>> pricing = {
+      "Delhi-Agra": {"Uber Go": 2200, "Uber Premier": 2800, "Uber XL": 3500, "Intercity": 4500},
+      "Delhi-Jaipur": {"Uber Go": 2800, "Uber Premier": 3500, "Uber XL": 4500, "Intercity": 5500},
+      "Agra-Jaipur": {"Uber Go": 2500, "Uber Premier": 3200, "Uber XL": 4200, "Intercity": 5000},
+    };
+    
+    String route = "${pickup}-${drop}";
+    String reverseRoute = "${drop}-${pickup}";
+    
+    var base = pricing[route] ?? pricing[reverseRoute] ?? {"Uber Go": 2000, "Uber Premier": 2500, "Uber XL": 3200, "Intercity": 4000};
+    return base[vehicleType] ?? 2000;
+  }
+
   void requestRide() {
-    int price = int.tryParse(priceController.text) ?? 0;
-    if (price <= 0) return;
+    int price = int.tryParse(priceController.text) ?? getEstimatedFare();
+    final String rideId = "${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}";
 
-    // Generate new Ride ID
-    final String rideId =
-        "${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}";
-
-    // Dispatch real-time ride request
     ws.send({
       'type': 'ride_request',
       'rideId': rideId,
@@ -407,6 +688,8 @@ class _BookingSheetState extends State<BookingSheet> {
       'drop': drop,
       'userOffer': price,
       'userId': ws.userId,
+      'vehicleType': vehicleType,
+      'paymentMethod': paymentMethod,
     });
 
     Navigator.pop(context);
@@ -418,6 +701,7 @@ class _BookingSheetState extends State<BookingSheet> {
           initialPrice: price,
           pickup: pickup,
           drop: drop,
+          vehicleType: vehicleType,
         ),
       ),
     );
@@ -425,6 +709,11 @@ class _BookingSheetState extends State<BookingSheet> {
 
   @override
   Widget build(BuildContext context) {
+    int currentFare = getEstimatedFare();
+    if (priceController.text.isEmpty) {
+       priceController.text = currentFare.toString();
+    }
+
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -432,79 +721,134 @@ class _BookingSheetState extends State<BookingSheet> {
       ),
       padding: EdgeInsets.only(
         top: 24,
-        left: 24,
-        right: 24,
+        left: 0,
+        right: 0,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                "Plan your ride",
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          DropdownButtonFormField(
-            initialValue: pickup,
-            items: cities
-                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                .toList(),
-            onChanged: (v) => setState(() => pickup = v!),
-            decoration: InputDecoration(
-              labelText: "Pickup",
-              filled: true,
-              fillColor: const Color(0xFFF3F3F3),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("Select Ride", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+              ],
             ),
           ),
           const SizedBox(height: 16),
-          DropdownButtonFormField(
-            initialValue: drop,
-            items: cities
-                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                .toList(),
-            onChanged: (v) => setState(() => drop = v!),
-            decoration: InputDecoration(
-              labelText: "Drop",
-              filled: true,
-              fillColor: const Color(0xFFF3F3F3),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
+          // Profile & Payment Row
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              children: [
+                _buildActionPill(profile, Icons.person_rounded, () {
+                  setState(() => profile = profile == "For Me" ? "For Someone Else" : "For Me");
+                }),
+                const SizedBox(width: 8),
+                _buildActionPill(paymentMethod, Icons.payments_rounded, () {
+                  setState(() => paymentMethod = paymentMethod == "Cash" ? "UPI" : "Cash");
+                }),
+              ],
             ),
           ),
           const SizedBox(height: 16),
-          TextField(
-            controller: priceController,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: "Offer your fare (₹)",
-              prefixIcon: const Icon(Icons.local_offer, color: Colors.green),
-              filled: true,
-              fillColor: const Color(0xFFF3F3F3),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
+          // Ride Options Carousel
+          SizedBox(
+            height: 140,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                _buildVehicleCard("Uber Go", "Fast & Affordable", 2200, Icons.directions_car_filled_rounded),
+                _buildVehicleCard("Uber Premier", "High-rated drivers", 2800, Icons.stars_rounded),
+                _buildVehicleCard("Uber XL", "Spacious 6-seater", 3500, Icons.airport_shuttle_rounded),
+                _buildVehicleCard("Intercity", "Comfortable outstation", 4500, Icons.map_rounded),
+              ],
             ),
           ),
-          const SizedBox(height: 32),
-          BlackButton(onPressed: requestRide, text: "Request Ride"),
+          const Divider(height: 40),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: priceController,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                    decoration: InputDecoration(
+                      labelText: "Your Offer (₹)",
+                      filled: true,
+                      fillColor: const Color(0xFFF3F3F3),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 56),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: requestRide,
+                    child: const Text("Request", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildActionPill(String text, IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(20)),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: Colors.black),
+            const SizedBox(width: 6),
+            Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            const Icon(Icons.keyboard_arrow_down_rounded, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVehicleCard(String title, String sub, int basePrice, IconData icon) {
+    bool isSelected = vehicleType == title;
+    return GestureDetector(
+      onTap: () => setState(() => vehicleType = title),
+      child: Container(
+        width: 160,
+        margin: const EdgeInsets.symmetric(horizontal: 8),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.black : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: isSelected ? Colors.black : Colors.grey.shade200, width: 2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: isSelected ? Colors.white : Colors.black, size: 32),
+            const Spacer(),
+            Text(title, style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(sub, style: TextStyle(color: isSelected ? Colors.white70 : Colors.grey, fontSize: 10)),
+          ],
+        ),
       ),
     );
   }
@@ -517,6 +861,7 @@ class BargainScreen extends StatefulWidget {
   final int initialPrice;
   final String pickup;
   final String drop;
+  final String vehicleType;
 
   const BargainScreen({
     super.key,
@@ -524,6 +869,7 @@ class BargainScreen extends StatefulWidget {
     required this.initialPrice,
     required this.pickup,
     required this.drop,
+    required this.vehicleType,
   });
 
   @override
@@ -537,14 +883,16 @@ class _BargainScreenState extends State<BargainScreen> {
   late StreamSubscription _sub;
 
   int _latestPrice = 0;
+  String? currentDriverName;
+  String? currentVehicleModel;
+  String? currentVehicleNumber;
 
   @override
   void initState() {
     super.initState();
     _latestPrice = widget.initialPrice;
-    msgs.add({"text": "₹${widget.initialPrice}", "me": true});
+    msgs.add({"text": "₹${widget.initialPrice} for ${widget.vehicleType}", "me": true});
 
-    // Listen to real-time driver offers
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
 
@@ -553,36 +901,44 @@ class _BargainScreenState extends State<BargainScreen> {
         if (offer > 0 && mounted) {
           setState(() {
             _latestPrice = offer;
+            currentDriverName = msg['driverName'];
+            currentVehicleModel = msg['vehicleModel'];
+            currentVehicleNumber = msg['vehicleNumber'];
             msgs.add({"text": "₹$offer", "me": false});
           });
           _scrollToBottom();
         }
-      } else if (msg['type'] == 'ride_booked') {
-        // Driver accepted our offer, or booked normally
+      } else if (msg['type'] == 'ride_booked' || msg['type'] == 'accept') {
+         if (mounted) {
+           Navigator.pushReplacement(
+             context,
+             MaterialPageRoute(
+               builder: (_) => DriverScreen(
+                 rideId: widget.rideId,
+                 price: msg['price'] ?? _latestPrice,
+                 pickup: widget.pickup,
+                 drop: widget.drop,
+                 driverName: msg['driverName'] ?? currentDriverName,
+                 vehicleModel: msg['vehicleModel'] ?? currentVehicleModel,
+                 vehicleNumber: msg['vehicleNumber'] ?? currentVehicleNumber,
+               ),
+             ),
+           );
+         }
+      } else if (msg['type'] == 'negotiation_cancelled') {
         if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => DriverScreen(
-                rideId: widget.rideId,
-                price: _latestPrice,
-                pickup: widget.pickup,
-                drop: widget.drop,
-              ),
-            ),
-          );
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Negotiation cancelled.")));
+           Navigator.pop(context);
         }
       }
     });
 
-    // Mock driver reply if testing alone, otherwise remove this in prod
     Future.delayed(const Duration(seconds: 4), () {
       if (mounted && msgs.length == 1) {
-        // Simulate a driver reply via web socket
         ws.send({
           'type': 'driver_offer',
           'rideId': widget.rideId,
-          'price': widget.initialPrice + 200,
+          'price': widget.initialPrice + 150,
         });
       }
     });
@@ -609,25 +965,17 @@ class _BargainScreenState extends State<BargainScreen> {
   void sendOffer() {
     int price = int.tryParse(controller.text) ?? 0;
     if (price <= 0) return;
-
     ws.send({'type': 'user_offer', 'rideId': widget.rideId, 'price': price});
-
     setState(() {
       _latestPrice = price;
       msgs.add({"text": "₹$price", "me": true});
     });
-
     controller.clear();
     _scrollToBottom();
   }
 
   void acceptDeal() {
-    ws.send({
-      'type': 'accept',
-      'rideId': widget.rideId,
-      'role': 'user',
-      'price': _latestPrice,
-    });
+    ws.send({'type': 'accept', 'rideId': widget.rideId, 'role': 'user', 'price': _latestPrice});
   }
 
   @override
@@ -635,33 +983,26 @@ class _BargainScreenState extends State<BargainScreen> {
     bool isDriverTurn = msgs.isNotEmpty && !msgs.last["me"];
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: Column(
           children: [
-            const Text(
-              "Finding a driver...",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              "To ${widget.drop}",
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
-            ),
+            const Text("Finding a driver", style: TextStyle(fontWeight: FontWeight.w900)),
+            Text(widget.vehicleType, style: const TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.red),
+            onPressed: () {
+               ws.send({'type': 'cancel_negotiation', 'rideId': widget.rideId});
+               Navigator.pop(context);
+            },
+          )
+        ],
       ),
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            color: Colors.grey[100],
-            width: double.infinity,
-            child: const Center(
-              child: Text(
-                "Drivers are reviewing your offer.",
-                style: TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-            ),
-          ),
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
@@ -670,53 +1011,53 @@ class _BargainScreenState extends State<BargainScreen> {
               itemBuilder: (context, index) {
                 var m = msgs[index];
                 bool me = m["me"];
-                return Align(
-                  alignment: me ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 14,
-                    ),
-                    decoration: BoxDecoration(
-                      color: me ? Colors.black : const Color(0xFFEEEEEE),
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(20),
-                        topRight: const Radius.circular(20),
-                        bottomLeft: Radius.circular(me ? 20 : 0),
-                        bottomRight: Radius.circular(me ? 0 : 20),
+                return Column(
+                  crossAxisAlignment: me ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: me ? Colors.black : const Color(0xFFEEEEEE),
+                        borderRadius: BorderRadius.circular(16).copyWith(
+                          bottomRight: me ? Radius.zero : null,
+                          bottomLeft: !me ? Radius.zero : null,
+                        ),
+                      ),
+                      child: Text(
+                        m["text"],
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: me ? Colors.white : Colors.black,
+                        ),
                       ),
                     ),
-                    child: Text(
-                      m["text"],
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: me ? Colors.white : Colors.black,
-                      ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(me ? "You" : (currentDriverName ?? "Driver"), style: TextStyle(fontSize: 10, color: Colors.grey[600])),
                     ),
-                  ),
+                  ],
                 );
               },
             ),
           ),
-
           if (isDriverTurn)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              child: BlackButton(
-                onPressed: acceptDeal,
-                text: "Accept Deal for ₹$_latestPrice",
+              padding: const EdgeInsets.all(20),
+              child: GestureDetector(
+                onTap: acceptDeal,
+                child: Container(
+                  height: 56,
+                  decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12)),
+                  child: Center(
+                    child: Text("Accept ₹$_latestPrice", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                ),
               ),
             ),
-
           Container(
-            padding: EdgeInsets.only(
-              left: 20,
-              right: 20,
-              top: 10,
-              bottom: MediaQuery.of(context).padding.bottom + 20,
-            ),
+            padding: EdgeInsets.only(left: 20, right: 20, top: 10, bottom: MediaQuery.of(context).padding.bottom + 20),
             decoration: const BoxDecoration(
               color: Colors.white,
               border: Border(top: BorderSide(color: Color(0xFFEEEEEE))),
@@ -728,28 +1069,17 @@ class _BargainScreenState extends State<BargainScreen> {
                     controller: controller,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      hintText: "Counter offer...",
+                      hintText: "Enter offer...",
                       filled: true,
                       fillColor: const Color(0xFFF3F3F3),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 14,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide.none,
-                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 CircleAvatar(
-                  radius: 25,
                   backgroundColor: Colors.black,
-                  child: IconButton(
-                    icon: const Icon(Icons.arrow_upward, color: Colors.white),
-                    onPressed: sendOffer,
-                  ),
+                  child: IconButton(icon: const Icon(Icons.send_rounded, color: Colors.white), onPressed: sendOffer),
                 ),
               ],
             ),
@@ -767,6 +1097,9 @@ class DriverScreen extends StatefulWidget {
   final int price;
   final String pickup;
   final String drop;
+  final String? driverName;
+  final String? vehicleModel;
+  final String? vehicleNumber;
 
   const DriverScreen({
     super.key,
@@ -774,6 +1107,9 @@ class DriverScreen extends StatefulWidget {
     required this.price,
     required this.pickup,
     required this.drop,
+    this.driverName,
+    this.vehicleModel,
+    this.vehicleNumber,
   });
 
   @override
@@ -787,7 +1123,6 @@ class _DriverScreenState extends State<DriverScreen> {
   @override
   void initState() {
     super.initState();
-    // Dispatch OTP configuration immediately when driver assigned
     ws.send({
       'type': 'set_ride_otp',
       'rideId': widget.rideId,
@@ -806,16 +1141,12 @@ class _DriverScreenState extends State<DriverScreen> {
             context,
             MaterialPageRoute(
               builder: (_) =>
-                  TrackingScreen(rideId: widget.rideId, price: widget.price),
+                  TrackingScreen(rideId: widget.rideId),
             ),
           );
         }
       }
     });
-
-    debugPrint(
-      "To start ride, Driver app must send: {'type':'verify_start_otp', 'rideId': '${widget.rideId}', 'otp':'$otp'}",
-    );
   }
 
   @override
@@ -833,35 +1164,58 @@ class _DriverScreenState extends State<DriverScreen> {
           Positioned(
             top: MediaQuery.of(context).padding.top + 10,
             left: 20,
-            child: CircleAvatar(
-              backgroundColor: Colors.white,
+            child: Container(
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1D23).withOpacity(0.8),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
+              ),
               child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.black),
+                icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
                 onPressed: () => Navigator.pop(context),
               ),
             ),
           ),
-          const Positioned(
-            top: 250,
-            left: 150,
-            child: Icon(Icons.local_taxi, size: 60, color: Colors.black),
+          Positioned(
+            top: MediaQuery.of(context).size.height * 0.35,
+            left: MediaQuery.of(context).size.width * 0.4,
+            child: TweenAnimationBuilder(
+              duration: const Duration(seconds: 2),
+              tween: Tween<double>(begin: 0, end: 1),
+              onEnd: () {},
+              builder: (context, double val, child) {
+                return Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF4D7CFF).withOpacity(0.1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4D7CFF).withOpacity(0.2),
+                        blurRadius: 30 * val,
+                        spreadRadius: 10 * val,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.local_taxi_rounded, size: 48, color: Colors.white),
+                );
+              },
+            ),
           ),
           Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
+            bottom: 30,
+            left: 20,
+            right: 20,
             child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A1D23),
+                borderRadius: BorderRadius.circular(32),
                 boxShadow: [
-                  BoxShadow(
-                    color: Colors.black12,
-                    blurRadius: 20,
-                    offset: Offset(0, -5),
-                  ),
+                  BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, offset: const Offset(0, 10)),
                 ],
+                border: Border.all(color: Colors.white.withOpacity(0.05)),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -874,47 +1228,34 @@ class _DriverScreenState extends State<DriverScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            "Meet driver at pickup",
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            "Driver is arriving",
+                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
                           ),
+                          const SizedBox(height: 4),
                           Text(
                             "Provide OTP: $otp",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              color: Colors.blue,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            style: const TextStyle(color: Color(0xFF00D2FF), fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                         ],
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.circular(20),
+                          gradient: const LinearGradient(colors: [Color(0xFF4D7CFF), Color(0xFF0061FF)]),
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(
                           "₹${widget.price}",
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 28),
                   Row(
                     children: [
                       const CircleAvatar(
-                        radius: 30,
+                        radius: 32,
                         backgroundImage: NetworkImage(
                           "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=facearea&facepad=2&w=256&h=256&q=80",
                         ),
@@ -923,50 +1264,49 @@ class _DriverScreenState extends State<DriverScreen> {
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text(
+                          children: [
+                            const Text(
                               "Ravi Sharma",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
+                              style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                             ),
                             Text(
-                              "Swift Dzire",
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.black54,
-                              ),
+                              "Tesla Model 3 • White",
+                              style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
                             ),
                           ],
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey[300]!),
-                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white.withOpacity(0.1)),
                         ),
                         child: const Text(
                           "DL 1C AB",
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    "Waiting for driver to verify OTP...",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontWeight: FontWeight.w500,
+                  const SizedBox(height: 28),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.03),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4D7CFF))),
+                        const SizedBox(width: 16),
+                        Text(
+                          "Verifying your security code...",
+                          style: TextStyle(color: Colors.white.withOpacity(0.4), fontWeight: FontWeight.w500),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -983,46 +1323,30 @@ class _DriverScreenState extends State<DriverScreen> {
 
 class TrackingScreen extends StatefulWidget {
   final String rideId;
-  final int price;
-  const TrackingScreen({super.key, required this.rideId, required this.price});
+  const TrackingScreen({super.key, required this.rideId});
 
   @override
   State<TrackingScreen> createState() => _TrackingScreenState();
 }
 
 class _TrackingScreenState extends State<TrackingScreen> {
-  late StreamSubscription _sub;
   double progress = 0.0;
+  late StreamSubscription _sub;
 
   @override
   void initState() {
     super.initState();
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
-
       if (msg['type'] == 'driver_location') {
-        if (msg['progress'] != null && mounted) {
-          setState(() {
-            progress = (msg['progress'] as num).toDouble();
-          });
-        }
+        if (mounted) setState(() { progress = msg['progress'] ?? progress; });
       } else if (msg['type'] == 'ride_complete') {
         if (mounted) {
-          setState(() {
-            progress = 1.0;
-          });
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => RatingScreen(rideId: widget.rideId)),
+          );
         }
-      }
-    });
-
-    // Optional self-driving mock if no driver is alive
-    Future.delayed(const Duration(seconds: 4), () {
-      if (mounted && progress == 0) {
-        ws.send({
-          'type': 'ride_complete',
-          'rideId': widget.rideId,
-          'finalPrice': widget.price,
-        });
       }
     });
   }
@@ -1036,99 +1360,123 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
           const MockMapBackground(),
           Positioned(
-            left: 50 + (250 * progress),
-            top: 400 - (200 * progress),
-            child: const Icon(Icons.local_taxi, size: 40, color: Colors.black),
-          ),
-          const Positioned(
-            left: 38,
-            top: 400,
-            child: Icon(Icons.location_on, color: Colors.green, size: 30),
-          ),
-          const Positioned(
-            left: 300,
-            top: 180,
-            child: Icon(Icons.location_on, color: Colors.red, size: 30),
+            top: 50, left: 20,
+            child: CircleAvatar(
+              backgroundColor: Colors.white,
+              child: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => Navigator.pop(context)),
+            ),
           ),
           Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
+            top: 50, right: 20,
+            child: FloatingActionButton.small(
+              backgroundColor: Colors.red,
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Emergency SOS Alert Sent!")));
+              },
+              child: const Icon(Icons.security, color: Colors.white),
+            ),
+          ),
+          Positioned(
+            bottom: 30, left: 20, right: 20,
             child: Container(
               padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                borderRadius: BorderRadius.circular(20),
                 boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 20)],
               ),
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          progress < 1
-                              ? "Heading to destination"
-                              : "You have arrived",
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF3F3F3),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            "₹${widget.price}",
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        backgroundColor: const Color(0xFFEEEEEE),
-                        color: Colors.black,
-                        minHeight: 8,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("Trip in Progress", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 16),
+                  LinearProgressIndicator(value: progress, minHeight: 8, borderRadius: BorderRadius.circular(4), color: Colors.black, backgroundColor: Colors.grey[200]),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      const CircleAvatar(
+                        radius: 28,
+                        backgroundColor: Color(0xFFF3F3F3),
+                        child: Icon(Icons.person, color: Colors.black),
                       ),
-                    ),
-                    const SizedBox(height: 24),
-                    if (progress >= 1)
-                      BlackButton(
-                        onPressed: () {
-                          Navigator.pushAndRemoveUntil(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const HomeScreen(),
-                            ),
-                            (route) => false,
-                          );
-                        },
-                        text: "Close Ride",
+                      const SizedBox(width: 16),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text("James", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                          Text("Swift Dzire • DL 1C AB 1234", style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)),
+                        ],
                       ),
-                  ],
-                ),
+                      const Spacer(),
+                      CircleAvatar(backgroundColor: const Color(0xFFF3F3F3), child: IconButton(icon: const Icon(Icons.phone, color: Colors.black), onPressed: () {})),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class RatingScreen extends StatefulWidget {
+  final String rideId;
+  const RatingScreen({super.key, required this.rideId});
+
+  @override
+  State<RatingScreen> createState() => _RatingScreenState();
+}
+
+class _RatingScreenState extends State<RatingScreen> {
+  int rating = 5;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 40),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text("How was your trip?", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: -1)),
+              const SizedBox(height: 12),
+              const Text("Your feedback helps us maintain the QuickCab pulse.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)),
+              const SizedBox(height: 48),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (index) {
+                  return IconButton(
+                    icon: Icon(index < rating ? Icons.star_rounded : Icons.star_outline_rounded, size: 56, color: Colors.amber),
+                    onPressed: () => setState(() => rating = index + 1),
+                  );
+                }),
+              ),
+              const SizedBox(height: 48),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 60),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () {
+                  ws.send({'type': 'submit_rating', 'rideId': widget.rideId, 'role': 'user', 'rating': rating});
+                  Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
+                },
+                child: const Text("Submit", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

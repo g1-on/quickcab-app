@@ -20,8 +20,8 @@ class WebSocketService {
   WebSocketChannel? _channel;
   final StreamController<Map<String, dynamic>> _controller = StreamController.broadcast();
 
-  final String driverId = "D_${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}";
-  final String name = "James (Driver)";
+  String get driverId => driverState.driverId;
+  String get name => driverState.name;
 
   Stream<Map<String, dynamic>> get stream => _controller.stream;
 
@@ -47,11 +47,11 @@ class WebSocketService {
         'type': 'register_driver',
         'driverId': driverId,
         'name': name,
-        'email': 'james@quickcab.com',
+        'email': driverState.email,
         'phone': '555-5000',
         'city': 'Delhi',
-        'vehicleModel': 'Swift Dzire',
-        'vehicleNumber': 'DL 1C AB 1234',
+        'vehicleModel': driverState.vehicleModel,
+        'vehicleNumber': driverState.vehicleNumber,
         'licenseNumber': 'DL-1234567',
       });
       send({
@@ -70,6 +70,43 @@ class WebSocketService {
     }
   }
 }
+
+class DriverProfileState {
+  static final DriverProfileState _instance = DriverProfileState._internal();
+  factory DriverProfileState() => _instance;
+  DriverProfileState._internal();
+
+  String driverId = "D_${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}";
+  String name = "James Driver";
+  String email = "james@quickcab.com";
+  String vehicleModel = "Swift Dzire";
+  String vehicleNumber = "DL 1C AB 1234";
+  
+  List<Map<String, dynamic>> trips = [
+    {"amount": 450, "route": "Delhi - Noida", "date": "2024-04-21"},
+    {"amount": 1200, "route": "Delhi - Agra", "date": "2024-04-20"},
+  ];
+
+  int get totalEarnings => trips.fold(0, (sum, t) => sum + (t['amount'] as int));
+  int get tripCount => trips.length;
+
+  void addTrip(int amount, String route) {
+    trips.insert(0, {
+      "amount": amount,
+      "route": route,
+      "date": DateTime.now().toIso8601String().substring(0, 10),
+    });
+  }
+
+  void register({required String name, required String email, required String model, required String plate}) {
+    this.name = name;
+    this.email = email;
+    this.vehicleModel = model;
+    this.vehicleNumber = plate;
+  }
+}
+
+final driverState = DriverProfileState();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -151,15 +188,81 @@ class BlackButton extends StatelessWidget {
 }
 
 class MockMapBackground extends StatelessWidget {
-  const MockMapBackground({super.key});
+  final bool showRipple;
+  const MockMapBackground({super.key, this.showRipple = true});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       height: double.infinity,
-      color: const Color(0xFFE5E5E5),
-      child: CustomPaint(painter: GridPainter()),
+      color: const Color(0xFFF9FAFB),
+      child: Stack(
+        children: [
+          CustomPaint(painter: GridPainter(), size: Size.infinite),
+          if (showRipple)
+            const Positioned(
+              top: 400,
+              left: 200,
+              child: LocationRipple(),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class LocationRipple extends StatefulWidget {
+  const LocationRipple({super.key});
+
+  @override
+  State<LocationRipple> createState() => _LocationRippleState();
+}
+
+class _LocationRippleState extends State<LocationRipple> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Container(
+          width: 100, height: 100,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 12, height: 12,
+                decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle),
+              ),
+              Opacity(
+                opacity: 1.0 - _controller.value,
+                child: Container(
+                  width: 100 * _controller.value,
+                  height: 100 * _controller.value,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blue, width: 2),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -168,8 +271,8 @@ class GridPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white.withOpacity(0.5)
-      ..strokeWidth = 2;
+      ..color = Colors.black.withOpacity(0.04)
+      ..strokeWidth = 1;
 
     for (double i = 0; i < size.width; i += 50) {
       canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
@@ -177,11 +280,14 @@ class GridPainter extends CustomPainter {
     for (double i = 0; i < size.height; i += 50) {
       canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
     }
-    final boldPaint = Paint()
+    
+    final roadPaint = Paint()
       ..color = Colors.white
-      ..strokeWidth = 8;
-    canvas.drawLine(Offset(100, 0), Offset(150, size.height), boldPaint);
-    canvas.drawLine(Offset(0, 200), Offset(size.width, 250), boldPaint);
+      ..strokeWidth = 20
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(Offset(100, 0), Offset(150, size.height), roadPaint);
+    canvas.drawLine(Offset(0, 200), Offset(size.width, 250), roadPaint);
   }
 
   @override
@@ -190,66 +296,143 @@ class GridPainter extends CustomPainter {
 
 //// ================= LOGIN =================
 
-class LoginScreen extends StatelessWidget {
+class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final emailController = TextEditingController();
+  final passController = TextEditingController();
+
+  void _handleLogin() {
+    if (emailController.text.isNotEmpty && passController.text.isNotEmpty) {
+      ws.connect();
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverHome()));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter email and password")));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Expanded(
-                child: Center(
-                  child: Text(
-                    "QuickCab\nDriver",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 48,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -1.5,
-                      height: 1.1,
-                    ),
-                  ),
-                ),
-              ),
-              const Text(
-                "Earn on\nyour terms.",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  height: 1.2,
-                ),
-              ),
-              const SizedBox(height: 48),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
-                  minimumSize: const Size(double.infinity, 56),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text("Go Online", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                onPressed: () {
-                  ws.connect();
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (_) => const DriverHome()),
-                  );
-                },
-              ),
+              const SizedBox(height: 100),
+              const Text("QuickCab Driver", style: TextStyle(color: Colors.white, fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: -1.5)),
+              const SizedBox(height: 64),
+              QuickCabTextField(controller: emailController, hint: "Driver Email", icon: Icons.email_outlined, dark: true),
               const SizedBox(height: 16),
+              QuickCabTextField(controller: passController, hint: "Password", icon: Icons.lock_outline, isPassword: true, dark: true),
+              const SizedBox(height: 32),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, minimumSize: const Size(double.infinity, 56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                onPressed: _handleLogin,
+                child: const Text("Go Online", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text("New to QuickCab? ", style: TextStyle(color: Colors.white70)),
+                  GestureDetector(
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverSignupScreen())),
+                    child: const Text("Sign Up to Drive", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, decoration: TextDecoration.underline)),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class DriverSignupScreen extends StatefulWidget {
+  const DriverSignupScreen({super.key});
+
+  @override
+  State<DriverSignupScreen> createState() => _DriverSignupScreenState();
+}
+
+class _DriverSignupScreenState extends State<DriverSignupScreen> {
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final modelController = TextEditingController();
+  final plateController = TextEditingController();
+
+  void _handleSignup() {
+    if (nameController.text.isNotEmpty && emailController.text.isNotEmpty && modelController.text.isNotEmpty) {
+      driverState.register(name: nameController.text, email: emailController.text, model: modelController.text, plate: plateController.text);
+      ws.connect();
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverHome()));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Complete your details")));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(backgroundColor: Colors.white, elevation: 0),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text("Partner with us", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900)),
+            const Text("Start earning in Delhi/NCR today", style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 32),
+            QuickCabTextField(controller: nameController, hint: "Full Name", icon: Icons.person_outline),
+            const SizedBox(height: 16),
+            QuickCabTextField(controller: emailController, hint: "Email address", icon: Icons.email_outlined),
+            const SizedBox(height: 16),
+            const Text("VEHICLE INFO", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue)),
+            const SizedBox(height: 12),
+            QuickCabTextField(controller: modelController, hint: "Vehicle Model (e.g. Swift)", icon: Icons.directions_car_outlined),
+            const SizedBox(height: 16),
+            QuickCabTextField(controller: plateController, hint: "License Plate #", icon: Icons.assignment_outlined),
+            const SizedBox(height: 32),
+            BlackButton(onPressed: _handleSignup, text: "Begin Driving"),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class QuickCabTextField extends StatelessWidget {
+  final TextEditingController controller;
+  final String hint;
+  final IconData icon;
+  final bool isPassword;
+  final bool dark;
+
+  const QuickCabTextField({super.key, required this.controller, required this.hint, required this.icon, this.isPassword = false, this.dark = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      obscureText: isPassword,
+      style: TextStyle(color: dark ? Colors.white : Colors.black),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: TextStyle(color: dark ? Colors.white38 : Colors.grey),
+        prefixIcon: Icon(icon, color: dark ? Colors.white70 : Colors.black),
+        filled: true,
+        fillColor: dark ? Colors.white.withOpacity(0.12) : const Color(0xFFF3F3F3),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
       ),
     );
   }
@@ -271,13 +454,25 @@ class _DriverHomeState extends State<DriverHome> {
   @override
   void initState() {
     super.initState();
+    _checkLocation();
     _sub = ws.stream.listen((msg) {
       if (msg['type'] == 'ride_request') {
         if (mounted) {
-          setState(() {
-            activeRequest = msg;
-          });
+          setState(() { activeRequest = msg; });
         }
+      }
+    });
+  }
+
+  void _checkLocation() {
+    Future.delayed(const Duration(seconds: 1), () {
+      if (mounted) {
+        showModalBottomSheet(
+          context: context,
+          isDismissible: false,
+          enableDrag: false,
+          builder: (context) => const LocationPermissionSheet(),
+        );
       }
     });
   }
@@ -291,7 +486,6 @@ class _DriverHomeState extends State<DriverHome> {
   void _reviewRequest() {
     if (activeRequest == null) return;
     
-    // Join the ride room implicitly before bargaining
     ws.send({
       'type': 'join_ride',
       'rideId': activeRequest!['rideId'],
@@ -322,28 +516,63 @@ class _DriverHomeState extends State<DriverHome> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Stack(
         children: [
           const MockMapBackground(),
           Positioned(
-            top: 50, left: 20, right: 20,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const CircleAvatar(
-                  backgroundColor: Colors.white,
-                  radius: 24,
-                  child: Icon(Icons.menu, color: Colors.black),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius: BorderRadius.circular(20),
+            top: MediaQuery.of(context).padding.top + 10,
+            left: 20,
+            child: GestureDetector(
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DriverProfileScreen())),
+              child: const CircleAvatar(
+                radius: 26,
+                backgroundColor: Colors.black,
+                child: Icon(Icons.person_rounded, color: Colors.white, size: 28),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 70, left: 20, right: 20,
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 15, offset: const Offset(0, 5))],
+              ),
+              child: Column(
+                children: [
+                   Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("TODAY'S EARNINGS", style: TextStyle(color: Colors.white60, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.2)),
+                       Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(color: Colors.white.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                        child: Row(
+                          children: const [
+                            Icon(Icons.star_rounded, color: Colors.amber, size: 14),
+                            SizedBox(width: 4),
+                            Text("4.95", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  child: const Text("ONLINE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                )
-              ],
+                  const SizedBox(height: 12),
+                  Text("₹${driverState.totalEarnings}.00", style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.w900, letterSpacing: -1)),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildMiniStat("${driverState.tripCount}", "TRIPS"),
+                      _buildMiniStat("8.4 hrs", "ONLINE"),
+                      _buildMiniStat("98%", "ACCEPTANCE"),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
           
@@ -354,17 +583,16 @@ class _DriverHomeState extends State<DriverHome> {
               decoration: const BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 20, offset: Offset(0, -5))],
+                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 20)],
               ),
               child: activeRequest == null
                 ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
                     mainAxisSize: MainAxisSize.min,
                     children: const [
                        SizedBox(height: 20),
                        CircularProgressIndicator(color: Colors.black),
-                       SizedBox(height: 24),
-                       Text("Finding rides...", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                       SizedBox(height: 20),
+                       Text("Looking for rides near you...", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black54)),
                        SizedBox(height: 40),
                     ],
                   )
@@ -375,23 +603,13 @@ class _DriverHomeState extends State<DriverHome> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text("New Ride Request", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                          Text("₹${activeRequest!['userOffer']}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.green)),
+                          const Text("New Ride Request", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                          Text("₹${activeRequest!['userOffer']}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFF00C853))),
                         ],
                       ),
                       const SizedBox(height: 16),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.my_location, color: Colors.black),
-                        title: const Text("Pickup", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                        subtitle: Text(activeRequest!['pickup'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black)),
-                      ),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const Icon(Icons.location_on, color: Colors.black),
-                        title: const Text("Drop", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                        subtitle: Text(activeRequest!['drop'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black)),
-                      ),
+                      Text("Pickup: ${activeRequest!['pickup']}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text("Drop: ${activeRequest!['drop']}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 24),
                       BlackButton(
                         onPressed: _reviewRequest,
@@ -402,6 +620,126 @@ class _DriverHomeState extends State<DriverHome> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMiniStat(String value, String label) {
+    return Column(
+      children: [
+        Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18)),
+        const SizedBox(height: 4),
+        Text(label, style: const TextStyle(color: Colors.white38, fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 0.5)),
+      ],
+    );
+  }
+}
+
+class LocationPermissionSheet extends StatelessWidget {
+  const LocationPermissionSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(32),
+      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.location_searching_rounded, size: 64, color: Colors.black),
+          const SizedBox(height: 24),
+          const Text("Enable Tracking", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 12),
+          const Text("Drivers share their location to receive ride requests and provide accurate ETAs to riders.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 15)),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Turn On Location", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Not Now", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+  }
+}
+
+class DriverProfileScreen extends StatelessWidget {
+  const DriverProfileScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(title: const Text("Driver Profile", style: TextStyle(fontWeight: FontWeight.w900))),
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          Row(
+            children: [
+              const CircleAvatar(radius: 40, backgroundColor: Color(0xFFF3F3F3), child: Icon(Icons.person, size: 40, color: Colors.black)),
+              const SizedBox(width: 20),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(driverState.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                  Text(driverState.email, style: const TextStyle(color: Colors.grey)),
+                  const Icon(Icons.star_rounded, size: 16, color: Colors.amber),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 48),
+          const Text("VEHICLE DETAILS", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.grey)),
+          const SizedBox(height: 16),
+          _buildProfileItem(context, Icons.directions_car_rounded, driverState.vehicleModel, driverState.vehicleNumber, onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Vehicle details are verified")));
+          }),
+          _buildProfileItem(context, Icons.verified_user_rounded, "Documents", "License & Insurance Verified", onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("All security documents are up-to-date")));
+          }),
+          const SizedBox(height: 32),
+          const Text("TRIP HISTORY", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.grey)),
+          const SizedBox(height: 16),
+          ...driverState.trips.map((trip) => _buildProfileItem(
+            context,
+            Icons.history_rounded,
+            "₹${trip['amount']}",
+            "${trip['route']} • ${trip['date']}",
+          )).toList(),
+          const SizedBox(height: 32),
+          const Text("ACCOUNT", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.grey)),
+          const SizedBox(height: 16),
+          _buildProfileItem(context, Icons.account_balance_wallet_rounded, "Total Earnings", "₹${driverState.totalEarnings}.00", onTap: () {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Redirecting to detailed reports...")));
+          }),
+          _buildProfileItem(context, Icons.logout_rounded, "Log Out", "Go offline & exit", color: Colors.red, onTap: () {
+            Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileItem(BuildContext context, IconData icon, String title, String sub, {Color? color, VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          children: [
+            Icon(icon, color: color ?? Colors.black, size: 28),
+            const SizedBox(width: 20),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: color)),
+                Text(sub, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+              ]),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+          ],
+        ),
       ),
     );
   }
@@ -439,9 +777,8 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
   void initState() {
     super.initState();
     _latestPrice = widget.userOffer;
-    msgs.add({"text": "₹${widget.userOffer}", "me": false}); // Note: me:false because it's User's offer
+    msgs.add({"text": "₹${widget.userOffer}", "me": false});
 
-    // Listen to real-time user counter-offers and acceptances
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
 
@@ -454,20 +791,24 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
           });
           _scrollToBottom();
         }
-      } else if (msg['type'] == 'ride_booked') {
-        // Deal locked in
+      } else if (msg['type'] == 'ride_booked' || msg['type'] == 'accept') {
         if (mounted) {
            Navigator.pushReplacement(
              context,
              MaterialPageRoute(
                builder: (_) => DriverExecutionScreen(
                  rideId: widget.rideId,
-                 price: _latestPrice,
+                 price: msg['price'] ?? _latestPrice,
                  pickup: widget.pickup,
                  drop: widget.drop,
                ),
              ),
            );
+        }
+      } else if (msg['type'] == 'negotiation_cancelled') {
+        if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User cancelled negotiation.")));
+           Navigator.pop(context);
         }
       }
     });
@@ -494,20 +835,37 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
   void sendOffer() {
     int price = int.tryParse(controller.text) ?? 0;
     if (price <= 0) return;
-
-    ws.send({'type': 'driver_offer', 'rideId': widget.rideId, 'price': price});
-
+    ws.send({
+      'type': 'driver_offer',
+      'rideId': widget.rideId,
+      'price': price,
+      'driverName': driverState.name,
+      'vehicleModel': driverState.vehicleModel,
+      'vehicleNumber': driverState.vehicleNumber,
+    });
     setState(() {
       _latestPrice = price;
       msgs.add({"text": "₹$price", "me": true});
     });
-
     controller.clear();
     _scrollToBottom();
   }
 
   void acceptDeal() {
-    ws.send({'type': 'accept', 'rideId': widget.rideId, 'role': 'driver', 'price': _latestPrice});
+    ws.send({
+      'type': 'accept',
+      'rideId': widget.rideId,
+      'role': 'driver',
+      'price': _latestPrice,
+      'driverName': driverState.name,
+      'vehicleModel': driverState.vehicleModel,
+      'vehicleNumber': driverState.vehicleNumber,
+    });
+  }
+
+  void cancelNegotiation() {
+    ws.send({'type': 'cancel_negotiation', 'rideId': widget.rideId, 'reason': 'Driver rejected the offer.'});
+    Navigator.pop(context);
   }
 
   @override
@@ -515,24 +873,18 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
     bool isUserTurn = msgs.isNotEmpty && !msgs.last["me"];
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Column(
-          children: [
-            const Text("Negotiating...", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            Text("${widget.pickup} → ${widget.drop}", style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
-        ),
+        title: const Text("Bargain Chat", style: TextStyle(fontWeight: FontWeight.w900)),
+        actions: [
+          TextButton(
+            onPressed: cancelNegotiation,
+            child: const Text("Cancel", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          )
+        ],
       ),
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            color: Colors.grey[100],
-            width: double.infinity,
-            child: const Center(
-              child: Text("User is waiting for your response...", style: TextStyle(fontSize: 12, color: Colors.black54)),
-            ),
-          ),
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
@@ -541,28 +893,33 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
               itemBuilder: (context, index) {
                 var m = msgs[index];
                 bool me = m["me"];
-                return Align(
-                  alignment: me ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: me ? Colors.black : const Color(0xFFEEEEEE),
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(20),
-                        topRight: const Radius.circular(20),
-                        bottomLeft: Radius.circular(me ? 20 : 0),
-                        bottomRight: Radius.circular(me ? 0 : 20),
+                return Column(
+                  crossAxisAlignment: me ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: me ? Colors.black : const Color(0xFFEEEEEE),
+                        borderRadius: BorderRadius.circular(16).copyWith(
+                          bottomRight: me ? Radius.zero : null,
+                          bottomLeft: !me ? Radius.zero : null,
+                        ),
+                      ),
+                      child: Text(
+                        m["text"],
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: me ? Colors.white : Colors.black,
+                        ),
                       ),
                     ),
-                    child: Text(
-                      m["text"],
-                      style: TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.bold,
-                        color: me ? Colors.white : Colors.black,
-                      ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(me ? "You" : "Passenger", style: TextStyle(fontSize: 10, color: Colors.grey[600])),
                     ),
-                  ),
+                  ],
                 );
               },
             ),
@@ -570,7 +927,7 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
           
           if (isUserTurn)
              Padding(
-               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+               padding: const EdgeInsets.all(20),
                child: BlackButton(
                  onPressed: acceptDeal,
                  text: "Accept Deal for ₹$_latestPrice",
@@ -578,10 +935,7 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
              ),
 
           Container(
-            padding: EdgeInsets.only(
-              left: 20, right: 20, top: 10,
-              bottom: MediaQuery.of(context).padding.bottom + 20,
-            ),
+            padding: EdgeInsets.only(left: 20, right: 20, top: 10, bottom: MediaQuery.of(context).padding.bottom + 20),
             decoration: const BoxDecoration(
               color: Colors.white,
               border: Border(top: BorderSide(color: Color(0xFFEEEEEE))),
@@ -596,23 +950,15 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
                       hintText: "Counter offer...",
                       filled: true,
                       fillColor: const Color(0xFFF3F3F3),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide.none,
-                      ),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 CircleAvatar(
-                  radius: 25,
                   backgroundColor: Colors.black,
-                  child: IconButton(
-                    icon: const Icon(Icons.arrow_upward, color: Colors.white),
-                    onPressed: sendOffer,
-                  ),
-                )
+                  child: IconButton(icon: const Icon(Icons.send_rounded, color: Colors.white), onPressed: sendOffer),
+                ),
               ],
             ),
           ),
@@ -697,8 +1043,15 @@ class _DriverExecutionScreenState extends State<DriverExecutionScreen> {
         'rideId': widget.rideId,
         'finalPrice': widget.price,
       });
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverHome()));
+      // We now wait for the driver to click "Finish & Record Trip" manually
     }
+  }
+
+  void _finishRide() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => DriverRatingScreen(rideId: widget.rideId)),
+    );
   }
 
   @override
@@ -776,14 +1129,78 @@ class _DriverExecutionScreenState extends State<DriverExecutionScreen> {
                           inactiveColor: Colors.grey[300],
                         ),
                         const SizedBox(height: 10),
-                        if (progress == 1.0)
-                          const Text("Ride Complete! Redirecting...", textAlign: TextAlign.center, style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))
+                        if (progress == 1.0) ...[
+                          const Text("Ride Complete! Redirecting...", textAlign: TextAlign.center, style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            onPressed: () {
+                              driverState.addTrip(widget.price, "${widget.pickup} - ${widget.drop}");
+                              _finishRide();
+                            },
+                            child: const Text("Finish & Record Trip"),
+                          ),
+                        ]
                       ],
                     )
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+class DriverRatingScreen extends StatefulWidget {
+  final String rideId;
+  const DriverRatingScreen({super.key, required this.rideId});
+
+  @override
+  State<DriverRatingScreen> createState() => _DriverRatingScreenState();
+}
+
+class _DriverRatingScreenState extends State<DriverRatingScreen> {
+  int rating = 5;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 40),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text("Rate Rider", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: -1)),
+              const SizedBox(height: 12),
+              const Text("How was your experience with the passenger?", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)),
+              const SizedBox(height: 48),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(5, (index) {
+                  return IconButton(
+                    icon: Icon(index < rating ? Icons.star_rounded : Icons.star_outline_rounded, size: 56, color: Colors.amber),
+                    onPressed: () => setState(() => rating = index + 1),
+                  );
+                }),
+              ),
+              const SizedBox(height: 48),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 60),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () {
+                  ws.send({'type': 'submit_rating', 'rideId': widget.rideId, 'role': 'driver', 'rating': rating});
+                  Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const DriverHome()), (route) => false);
+                },
+                child: const Text("Done", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

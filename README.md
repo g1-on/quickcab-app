@@ -48,3 +48,21 @@ flutter run -d chrome
 - When the User App sends a `ride_request`, the WebSockets server instantly pushes the location geometry over to the Driver. 
 - The integrated Bargain system creates real-time synced chat-bubbles, finalizing only when both parties agree.
 - The Live Operations Center natively reads from the Dart in-memory dictionary to visualize map congestion globally.
+
+## Production Environment
+
+The QuickCab matrix server is deployed on Render at `https://quickcab-matrix.onrender.com`.
+
+To build and run the User or Driver applications pointing to the production server, use the `--dart-define` flag to dynamically set the `WS_URL` environment variable:
+
+```bash
+# Run User App on Chrome connected to Production
+cd quickcab_user
+flutter run -d chrome --dart-define=WS_URL=wss://quickcab-matrix.onrender.com/ws
+
+# Run Driver App on Chrome connected to Production
+cd quickcab_driver
+flutter run -d chrome --dart-define=WS_URL=wss://quickcab-matrix.onrender.com/ws
+```
+
+VS Code launch configurations are also provided in `.vscode/launch.json` for one-click deployment to the production server.

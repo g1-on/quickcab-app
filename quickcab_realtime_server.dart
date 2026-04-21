@@ -465,6 +465,20 @@ Future<void> main() async {
     }
   }
 
+  Future<void> broadcastToAll(Map<String, dynamic> msg) async {
+    final text = jsonEncode(msg);
+    // Broadcast to drivers
+    for (final s in driverSockets.toList()) {
+      try { s.add(text); } catch (_) { driverSockets.remove(s); }
+    }
+    // Broadcast to everyone in rooms
+    for (final room in rooms.values) {
+      for (final s in room.toList()) {
+        try { s.add(text); } catch (_) {}
+      }
+    }
+  }
+
   Future<void> bookRideIfMatched(String rideId, Map<String, int> state) async {
     final userPrice = state['user'];
     final driverPrice = state['driver'];
@@ -603,24 +617,31 @@ Future<void> main() async {
           case 'ride_request':
             final rideId = msg['rideId'];
             if (rideId is! String || rideId.isEmpty) return;
-            final userOffer =
-                msg['userOffer'] is num ? (msg['userOffer'] as num).toInt() : null;
+            msg['status'] = 'finding';
+            msg['vehicleType'] = msg['vehicleType'] ?? 'Uber Go';
+            msg['paymentMethod'] = msg['paymentMethod'] ?? 'Cash';
+            msg['createdAt'] = DateTime.now().toIso8601String();
+            msg['updatedAt'] = msg['createdAt'];
+            
+            final userOffer = msg['userOffer'] is num ? (msg['userOffer'] as num).toInt() : null;
             rooms.putIfAbsent(rideId, () => <WebSocket>{}).add(socket);
-            acceptState[rideId] = {
-              if (userOffer != null) 'user': userOffer,
-            };
-            rides[rideId] = {
+            acceptState[rideId] = { if (userOffer != null) 'user': userOffer };
+            
+            rides[rideId] = msg;
+            await broadcastToAll({'type': 'ride_request', ...msg});
+            return;
+
+          case 'submit_rating':
+            final rideId = msg['rideId'];
+            if (rideId == null) return;
+            // In a real app, we'd save this to a DB. For now, we just broadcast acknowledgement.
+            await broadcastToRoom(rideId, {
+              'type': 'rating_received',
               'rideId': rideId,
-              'pickup': (msg['pickup'] ?? '').toString(),
-              'drop': (msg['drop'] ?? '').toString(),
-              'userOffer': userOffer,
-              'userId': (msg['userId'] ?? '').toString(),
-              'driverId': rides[rideId]?['driverId'],
-              'status': 'requested',
-              'rideStarted': false,
-              'updatedAt': DateTime.now().toIso8601String(),
-            };
-            broadcastToDrivers(msg);
+              'from': msg['role'],
+              'rating': msg['rating'],
+              'comment': msg['comment'] ?? '',
+            });
             return;
 
           case 'join_ride':
@@ -650,6 +671,11 @@ Future<void> main() async {
               'type': type,
               'rideId': rideId,
               'price': price.toInt(),
+              if (type == 'driver_offer') ...{
+                'driverName': msg['driverName'],
+                'vehicleModel': msg['vehicleModel'],
+                'vehicleNumber': msg['vehicleNumber'],
+              }
             });
             if (rides.containsKey(rideId)) {
               rides[rideId]![type == 'user_offer' ? 'userOffer' : 'driverOffer'] =
@@ -674,6 +700,9 @@ Future<void> main() async {
               'rideId': rideId,
               'role': role,
               'price': price.toInt(),
+              'driverName': msg['driverName'],
+              'vehicleModel': msg['vehicleModel'],
+              'vehicleNumber': msg['vehicleNumber'],
             });
 
             await bookRideIfMatched(rideId, state);
@@ -768,6 +797,23 @@ Future<void> main() async {
               if (finalPrice is num) rides[rideId]!['finalPrice'] = finalPrice.toInt();
               rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
             }
+            return;
+
+          case 'cancel_negotiation':
+            final rideId = msg['rideId'];
+            if (rideId is! String || rideId.isEmpty) return;
+            await broadcastToRoom(rideId, {
+              'type': 'negotiation_cancelled',
+              'rideId': rideId,
+              'reason': msg['reason'] ?? 'User or Driver cancelled',
+            });
+            if (rides.containsKey(rideId)) {
+              rides[rideId]!['status'] = 'cancelled';
+              rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
+            }
+            // Optional: Clean up room
+            rooms.remove(rideId);
+            acceptState.remove(rideId);
             return;
 
           default:
