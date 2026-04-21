@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuickCab Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #000000;
+            --bg: #F9FAFB;
+            --surface: #FFFFFF;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg);
+            color: var(--primary);
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            padding: 40px;
+            text-align: center;
+        }
+        h1 {
+            font-size: 64px;
+            font-weight: 800;
+            margin-bottom: 12px;
+            letter-spacing: -2px;
+        }
+        p {
+            font-size: 18px;
+            color: #6B7280;
+            margin-bottom: 60px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        .card {
+            background: var(--surface);
+            border-radius: 24px;
+            padding: 48px;
+            text-decoration: none;
+            color: inherit;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border: 1px solid transparent;
+        }
+        .card:hover {
+            transform: translateY(-8px);
+            border-color: #E5E7EB;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .icon {
+            width: 80px;
+            height: 80px;
+            background: #F3F4F6;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            margin-bottom: 24px;
+            transition: transform 0.3s ease;
+        }
+        .card:hover .icon {
+            transform: scale(1.1) rotate(-5deg);
+        }
+        .card h2 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .card span {
+            color: #6B7280;
+            font-size: 14px;
+        }
+        .btn {
+            margin-top: 32px;
+            background: var(--primary);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+            h1 { font-size: 40px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>QuickCab</h1>
+        <p>Your journey starts with a simple choice.</p>
+        
+        <div class="grid">
+            <a href="user" class="card">
+                <div class="icon">🏠</div>
+                <h2>Rider App</h2>
+                <span>Book a ride and go anywhere.</span>
+                <div class="btn">Launch Rider App</div>
+            </a>
+            
+            <a href="driver" class="card">
+                <div class="icon">🚕</div>
+                <h2>Driver App</h2>
+                <span>Start earning and stay flexible.</span>
+                <div class="btn">Launch Driver App</div>
+            </a>
+        </div>
+    </div>
+</body>
+</html>
