@@ -47,24 +47,30 @@ class WebSocketService {
         onDone: () => debugPrint("WS Done"),
       );
 
-      send({
-        'type': 'register_driver',
-        'driverId': driverId,
-        'name': name,
-        'email': driverState.email,
-        'phone': '555-5000',
-        'city': 'Delhi',
-        'vehicleModel': driverState.vehicleModel,
-        'vehicleNumber': driverState.vehicleNumber,
-        'licenseNumber': 'DL-1234567',
-      });
-      send({
-        'type': 'driver_online',
-        'driverId': driverId,
-      });
+      syncDriverProfile();
     } catch (e) {
       debugPrint("WS Connection Exception: $e");
     }
+  }
+
+  void syncDriverProfile() {
+    // Register the driver to show up in Admin Panel
+    send({
+      'type': 'register_driver',
+      'driverId': driverId,
+      'name': name,
+      'email': driverState.email,
+      'phone': '555-5000',
+      'city': 'Delhi',
+      'vehicleModel': driverState.vehicleModel,
+      'vehicleNumber': driverState.vehicleNumber,
+      'licenseNumber': 'DL-1234567',
+    });
+    // Mark as online in admin
+    send({
+      'type': 'driver_online',
+      'driverId': driverId,
+    });
   }
 
   void send(Map<String, dynamic> data) {
@@ -314,6 +320,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void _handleLogin() {
     if (emailController.text.isNotEmpty && passController.text.isNotEmpty) {
       ws.connect();
+      ws.syncDriverProfile();
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverHome()));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter email and password")));
@@ -377,8 +384,10 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
   void _handleSignup() {
     if (nameController.text.isNotEmpty && emailController.text.isNotEmpty && modelController.text.isNotEmpty) {
       driverState.register(name: nameController.text, email: emailController.text, model: modelController.text, plate: plateController.text);
+      driverState.vehicleNumber = plateController.text;
       ws.connect();
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverHome()));
+      ws.syncDriverProfile();
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const DriverHome()), (route) => false);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Complete your details")));
     }

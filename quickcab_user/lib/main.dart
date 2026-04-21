@@ -52,18 +52,22 @@ class WebSocketService {
         onDone: () => debugPrint("WS Done"),
       );
 
-      // Register the user to show up in Admin Panel
-      send({
-        'type': 'register_user',
-        'userId': userId,
-        'name': name,
-        'email': userState.email,
-        'phone': '555-0199',
-        'city': 'Delhi',
-      });
+      syncUserProfile();
     } catch (e) {
       debugPrint("WS Connection Exception: $e");
     }
+  }
+
+  void syncUserProfile() {
+    // Register the user to show up in Admin Panel
+    send({
+      'type': 'register_user',
+      'userId': userId,
+      'name': name,
+      'email': userState.email,
+      'phone': '555-0199',
+      'city': 'Delhi',
+    });
   }
 
   void send(Map<String, dynamic> data) {
@@ -303,6 +307,7 @@ class _LoginScreenState extends State<LoginScreen> {
         userState.updateProfile(name: "User", email: emailController.text);
       }
       ws.connect();
+      ws.syncUserProfile();
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter credentials")));
@@ -367,7 +372,8 @@ class _SignupScreenState extends State<SignupScreen> {
     if (nameController.text.isNotEmpty && emailController.text.isNotEmpty) {
       userState.updateProfile(name: nameController.text, email: emailController.text);
       ws.connect();
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      ws.syncUserProfile();
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields")));
     }

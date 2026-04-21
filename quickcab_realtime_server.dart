@@ -264,6 +264,32 @@ Future<void> main() async {
     .badge.red { background: #FEE2E2; color: #991B1B; }
     .badge.blue { background: #DBEAFE; color: #1E40AF; }
     .badge.orange { background: #FEF3C7; color: #92400E; }
+
+    .log-container {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+    .log-pill {
+      flex: 0 0 auto;
+      background: #F3F4F6;
+      border: 1px solid #E5E7EB;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .log-pill .log-who {
+      font-weight: 800;
+      text-transform: uppercase;
+      font-size: 9px;
+      margin-bottom: 2px;
+      color: var(--text-muted);
+    }
+    .log-pill.user { border-left: 3px solid #000; }
+    .log-pill.driver { border-left: 3px solid #3B82F6; }
   </style>
 </head>
 <body>
@@ -406,21 +432,38 @@ Future<void> main() async {
         const ridesEl = document.getElementById('ridesList');
         ridesEl.innerHTML = rides.length ? '' : '<div class="item-row"><span style="color:var(--text-muted)">No active rides</span></div>';
         rides.forEach(r => {
+          let logHtml = '';
+          if (r.logs && r.logs.length) {
+            logHtml = `<div class="log-container">`;
+            r.logs.forEach(l => {
+              logHtml += `
+                <div class="log-pill \${l.from === 'user' ? 'user' : 'driver'}">
+                  <div class="log-who">\${l.from} • \${fmtTs(l.ts)}</div>
+                  <div>\${l.text}</div>
+                </div>
+              `;
+            });
+            logHtml += `</div>`;
+          }
+
           ridesEl.innerHTML += `
-            <div class="item-row" style="display:flex; flex-direction:row; justify-content:space-between; align-items:center;">
-              <div style="display:flex; flex-direction:column; gap:6px;">
-                <div class="item-title">
-                  \${r.pickup || '?'} → \${r.drop || '?'}
-                  <span class="badge \${getStatusBadge(r.status)}">\${r.status || 'requested'}</span>
-                  <span class="badge gray">ID: \${r.rideId}</span>
+            <div class="item-row">
+              <div style="display:flex; flex-direction:row; justify-content:space-between; align-items:center;">
+                <div style="display:flex; flex-direction:column; gap:6px;">
+                  <div class="item-title">
+                    \${r.pickup || '?'} → \${r.drop || '?'}
+                    <span class="badge \${getStatusBadge(r.status)}">\${r.status || 'requested'}</span>
+                    <span class="badge gray">ID: \${r.rideId}</span>
+                  </div>
+                  <div class="item-sub">
+                    User: \${r.userId || '-'} • Driver: \${r.driverId || '-'} • Updated: \${fmtTs(r.updatedAt)}
+                  </div>
                 </div>
-                <div class="item-sub">
-                  User: \${r.userId || '-'} • Driver: \${r.driverId || '-'} • Updated: \${fmtTs(r.updatedAt)}
+                <div style="font-size: 20px; font-weight: 800;">
+                  ₹\${r.finalPrice || r.userOffer || '-'}
                 </div>
               </div>
-              <div style="font-size: 20px; font-weight: 800;">
-                ₹\${r.finalPrice || r.userOffer || '-'}
-              </div>
+              \${logHtml}
             </div>
           `;
         });
@@ -622,8 +665,17 @@ Future<void> main() async {
             msg['paymentMethod'] = msg['paymentMethod'] ?? 'Cash';
             msg['createdAt'] = DateTime.now().toIso8601String();
             msg['updatedAt'] = msg['createdAt'];
+            msg['logs'] = [];
             
             final userOffer = msg['userOffer'] is num ? (msg['userOffer'] as num).toInt() : null;
+            if (userOffer != null) {
+              (msg['logs'] as List).add({
+                'ts': DateTime.now().toIso8601String(),
+                'from': 'user',
+                'text': 'Initial offer: ₹$userOffer',
+              });
+            }
+
             rooms.putIfAbsent(rideId, () => <WebSocket>{}).add(socket);
             acceptState[rideId] = { if (userOffer != null) 'user': userOffer };
             
@@ -682,6 +734,13 @@ Future<void> main() async {
                   price.toInt();
               rides[rideId]!['status'] = 'bargaining';
               rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
+              
+              final logEntry = {
+                'ts': rides[rideId]!['updatedAt'],
+                'from': type == 'user_offer' ? 'user' : 'driver',
+                'text': 'Offer: ₹${price.toInt()}',
+              };
+              (rides[rideId]!['logs'] as List?)?.add(logEntry);
             }
             await bookRideIfMatched(rideId, state);
             return;
@@ -704,6 +763,15 @@ Future<void> main() async {
               'vehicleModel': msg['vehicleModel'],
               'vehicleNumber': msg['vehicleNumber'],
             });
+
+            if (rides.containsKey(rideId)) {
+               final logEntry = {
+                'ts': DateTime.now().toIso8601String(),
+                'from': role,
+                'text': 'ACCEPTED: ₹${price.toInt()}',
+              };
+              (rides[rideId]!['logs'] as List?)?.add(logEntry);
+            }
 
             await bookRideIfMatched(rideId, state);
             return;
