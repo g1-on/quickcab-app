@@ -934,6 +934,7 @@ Future<void> main() async {
               'role': role,
               'text': text,
               'driverId': role == 'driver' ? (msg['driverId'] ?? socketDriverId[socket]) : null,
+              'driverName': role == 'driver' ? msg['driverName'] : null,
               'userName': role == 'user' ? (msg['userName']) : null,
             });
             
