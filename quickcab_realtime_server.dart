@@ -818,6 +818,35 @@ Future<void> main() async {
             saveDbs();
             return;
 
+          case 'chat_message':
+            final rideId = msg['rideId'];
+            final text = msg['text'];
+            final role = msg['role'];
+            if (rideId is! String || text is! String || role is! String) return;
+            
+            final logEntry = {
+              'ts': DateTime.now().toIso8601String(),
+              'from': role,
+              'text': text,
+              'userName': msg['userName'],
+            };
+            
+            if (rides.containsKey(rideId)) {
+              rides[rideId]!['updatedAt'] = logEntry['ts'];
+              (rides[rideId]!['logs'] as List?)?.add(logEntry);
+              saveDbs();
+            }
+            
+            await broadcastToRoom(rideId, {
+              'type': 'chat_message',
+              'rideId': rideId,
+              'role': role,
+              'text': text,
+              'userName': msg['userName'],
+              'ts': logEntry['ts'],
+            });
+            return;
+
           case 'user_offer':
           case 'driver_offer':
             final rideId = msg['rideId'];
