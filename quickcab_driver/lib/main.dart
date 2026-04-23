@@ -196,8 +196,13 @@ final driverState = DriverProfileState();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await driverState.init();
+  
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await driverState.init();
+  } catch (e) {
+    debugPrint("Firebase Init Error: $e");
+  }
   
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(

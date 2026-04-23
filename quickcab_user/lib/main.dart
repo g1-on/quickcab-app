@@ -169,8 +169,14 @@ final userState = UserProfileState();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await userState.init();
+  
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await userState.init();
+  } catch (e) {
+    debugPrint("Firebase Init Error: $e");
+    // Continue anyway to avoid white screen
+  }
   
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
