@@ -120,6 +120,7 @@ class DriverProfileState {
   String email = "james@quickcab.com";
   String vehicleModel = "Swift Dzire";
   String vehicleNumber = "DL 1C AB 1234";
+  bool isLoggedIn = false;
   
   List<Map<String, dynamic>> trips = [
     {"amount": 450, "route": "Delhi - Noida", "date": "2024-04-21"},
@@ -144,6 +145,7 @@ class DriverProfileState {
     email = prefs.getString('email') ?? "james@quickcab.com";
     vehicleModel = prefs.getString('vehicleModel') ?? "Swift Dzire";
     vehicleNumber = prefs.getString('vehicleNumber') ?? "DL 1C AB 1234";
+    isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
     if (prefs.getString('driverId') == null) {
       await prefs.setString('driverId', driverId);
     }
@@ -179,10 +181,12 @@ class DriverProfileState {
     this.driverId = data['id'];
     this.name = data['name'];
     this.email = data['email'];
+    this.isLoggedIn = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('driverId', driverId);
     await prefs.setString('name', name);
     await prefs.setString('email', email);
+    await prefs.setBool('isLoggedIn', true);
   }
 }
 
@@ -233,7 +237,7 @@ class QuickCabDriverApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const LoginScreen(),
+      home: driverState.isLoggedIn ? const DriverHome() : const LoginScreen(),
     );
   }
 }
