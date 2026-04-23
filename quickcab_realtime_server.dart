@@ -621,6 +621,17 @@ Future<void> main() async {
       continue;
     }
 
+    // --- CORS HEADERS ---
+    req.response.headers.add('Access-Control-Allow-Origin', '*');
+    req.response.headers.add('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    req.response.headers.add('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method == 'OPTIONS') {
+      req.response.statusCode = HttpStatus.ok;
+      await req.response.close();
+      return;
+    }
+
     if (req.uri.path == '/api/signup' && req.method == 'POST') {
       final body = await utf8.decoder.bind(req).join();
       final data = jsonDecode(body);
