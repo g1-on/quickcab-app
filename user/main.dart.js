@@ -88074,21 +88074,23 @@ Kv(){var s=t.N,r=t.S,q=A.a9(["Delhi-Agra",A.a9(["Uber Go",2200,"Uber Premier",28
 if(m==null)m=A.a9(["Uber Go",2000,"Uber Premier",2500,"Uber XL",3200,"Intercity",4000],s,r)
 s=m.h(0,this.r)
 return s==null?2000:s},
-atG(){var s,r,q,p,o=this,n=B.d.kO(o.d.a.a),m=B.d.kO(o.e.a.a)
-if(n.length===0||m.length===0){o.c.ag(t.Pu).f.kW(B.QX)
-return}s=A.pR(o.f.a.a,null)
-if(s==null)s=o.Kv()
+atG(){var s,r,q,p,o,n=this,m=B.d.kO(n.d.a.a),l=B.d.kO(n.e.a.a)
+if(m.length===0||l.length===0){n.c.ag(t.Pu).f.kW(B.QX)
+return}s=A.pR(n.f.a.a,null)
+if(s==null)s=n.Kv()
 r=Date.now()
 q=""+r+"_"+B.CM.arF(9999)
-r=t.z
-$.il().c5(A.a9(["type","ride_request","rideId",q,"pickup",n,"drop",m,"userOffer",s,"userId",$.lM().a,"vehicleType",o.r,"paymentMethod",o.w],t.N,r))
-p=o.c
+r=$.il()
+p=$.lM()
+o=t.z
+r.c5(A.a9(["type","ride_request","rideId",q,"pickup",m,"drop",l,"userOffer",s,"userId",p.a,"userName",p.b,"vehicleType",n.r,"paymentMethod",n.w],t.N,o))
+p=n.c
 p.toString
 A.f1(p,!1).lE(null)
-p=o.c
+p=n.c
 p.toString
-r=A.jx(new A.akQ(o,q,s,n,m),null,r)
-A.f1(p,!1).lF(r)},
+o=A.jx(new A.akQ(n,q,s,m,l),null,o)
+A.f1(p,!1).lF(o)},
 K(a){var s,r=this,q=null,p=r.Kv(),o=r.f,n=o.a
 if(n.a.length===0)o.jO(n.ui(B.aO,B.fs,B.i.k(p)))
 n=A.bm(a,q,t.w).w
