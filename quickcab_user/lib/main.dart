@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math';
 import 'dart:ui' show ImageFilter;
@@ -22,6 +23,10 @@ String get wsUrl {
   if (kIsWeb) return 'ws://localhost:8081/ws';
   if (!kIsWeb && Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
   return 'ws://localhost:8081/ws';
+}
+
+String get apiUrl {
+  return wsUrl.replaceAll('wss://', 'https://').replaceAll('ws://', 'http://').replaceAll('/ws', '');
 }
 
 // Global WebSocket Service
@@ -124,14 +129,48 @@ class UserProfileState {
     }
   }
 
-  Future<void> updateProfile({required String name, required String email}) async {
-    this.name = name;
-    this.email = email;
+  Future<void> login({required String email, required String password}) async {
+    final resp = await http.post(
+      Uri.parse('$apiUrl/api/login'),
+      body: jsonEncode({'email': email, 'password': password, 'role': 'user'}),
+    );
+    if (resp.statusCode == 200) {
+      final data = jsonDecode(resp.body);
+      await _saveSession(data);
+    } else {
+      throw Exception(jsonDecode(resp.body)['error'] ?? 'Login failed');
+    }
+  }
+
+  Future<void> signup({required String name, required String email, required String password}) async {
+    final resp = await http.post(
+      Uri.parse('$apiUrl/api/signup'),
+      body: jsonEncode({'name': name, 'email': email, 'password': password, 'role': 'user'}),
+    );
+    if (resp.statusCode == 200) {
+      final data = jsonDecode(resp.body);
+      await _saveSession(data);
+    } else {
+      throw Exception(jsonDecode(resp.body)['error'] ?? 'Signup failed');
+    }
+  }
+
+  Future<void> _saveSession(Map<String, dynamic> data) async {
+    this.userId = data['id'];
+    this.name = data['name'];
+    this.email = data['email'];
     this.isLoggedIn = true;
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('userId', userId);
     await prefs.setString('name', name);
     await prefs.setString('email', email);
     await prefs.setBool('isLoggedIn', true);
+  }
+
+  Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    isLoggedIn = false;
   }
 }
 
@@ -358,17 +397,20 @@ class _LoginScreenState extends State<LoginScreen> {
   final emailController = TextEditingController();
   final passController = TextEditingController();
 
-  void _handleLogin() {
+  void _handleLogin() async {
     if (emailController.text.isNotEmpty && passController.text.isNotEmpty) {
-      // Mock login - if email matches guest, use alex data, else use entered
-      if (emailController.text == "alex@test.com") {
-        userState.updateProfile(name: "Alex User", email: "alex@test.com");
-      } else {
-        userState.updateProfile(name: "User", email: emailController.text);
+      try {
+        await userState.login(email: emailController.text, password: passController.text);
+        ws.connect();
+        ws.syncUserProfile();
+        if (mounted) {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        }
       }
-      ws.connect();
-      ws.syncUserProfile();
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter credentials")));
     }
@@ -428,12 +470,24 @@ class _SignupScreenState extends State<SignupScreen> {
   final emailController = TextEditingController();
   final passController = TextEditingController();
 
-  void _handleSignup() {
-    if (nameController.text.isNotEmpty && emailController.text.isNotEmpty) {
-      userState.updateProfile(name: nameController.text, email: emailController.text);
-      ws.connect();
-      ws.syncUserProfile();
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
+  void _handleSignup() async {
+    if (nameController.text.isNotEmpty && emailController.text.isNotEmpty && passController.text.isNotEmpty) {
+      try {
+        await userState.signup(
+          name: nameController.text, 
+          email: emailController.text, 
+          password: passController.text,
+        );
+        ws.connect();
+        ws.syncUserProfile();
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        }
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields")));
     }
@@ -871,24 +925,25 @@ class _BookingSheetState extends State<BookingSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          // Profile & Payment Row
-          Padding(
+          
+          // Category Tabs
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Row(
               children: [
-                _buildActionPill(profile, Icons.person_rounded, () {
-                  setState(() => profile = profile == "For Me" ? "For Someone Else" : "For Me");
-                }),
-                const SizedBox(width: 8),
-                _buildActionPill(paymentMethod, Icons.payments_rounded, () {
-                  setState(() => paymentMethod = paymentMethod == "Cash" ? "UPI" : "Cash");
-                }),
+                _buildCategoryTab("Economy", true),
+                _buildCategoryTab("Premium", false),
+                _buildCategoryTab("Rental", false),
+                _buildCategoryTab("Outstation", false),
               ],
             ),
           ),
           const SizedBox(height: 16),
+
           // Ride Options List
-          Expanded(
+          SizedBox(
+            height: 280,
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               children: [
@@ -899,46 +954,94 @@ class _BookingSheetState extends State<BookingSheet> {
               ],
             ),
           ),
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
+
+          // Payment & Schedule Row
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: Color(0xFFEEEEEE))),
+            ),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: priceController,
-                        keyboardType: TextInputType.number,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                        decoration: InputDecoration(
-                          labelText: "Your Offer (₹)",
-                          filled: true,
-                          fillColor: const Color(0xFFF3F3F3),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: requestRide,
-                      child: const Text("Confirm", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Text("Price is negotiable with drivers", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                _buildActionChip(Icons.payment, paymentMethod, () => _showPaymentPicker()),
+                const SizedBox(width: 8),
+                _buildActionChip(Icons.local_offer, "Promo", () {}),
+                const Spacer(),
+                _buildActionChip(Icons.schedule, "Schedule", () {}),
               ],
             ),
           ),
+
+          // Confirm Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: ElevatedButton(
+                onPressed: requestRide,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 0,
+                ),
+                child: Text("Confirm $vehicleType", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Center(child: Text("Price is negotiable with drivers", style: TextStyle(color: Colors.grey, fontSize: 12))),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryTab(String title, bool isSelected) {
+    return Container(
+      margin: const EdgeInsets.only(right: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: isSelected ? Colors.black : Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: isSelected ? Colors.black : Colors.grey.shade300),
+      ),
+      child: Text(title, style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontSize: 13)),
+    );
+  }
+
+  Widget _buildActionChip(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(8)),
+        child: Row(
+          children: [
+            Icon(icon, size: 16),
+            const SizedBox(width: 6),
+            Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showPaymentPicker() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Select Payment Method", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            ListTile(leading: const Icon(Icons.money), title: const Text("Cash"), onTap: () { setState(() => paymentMethod = "Cash"); Navigator.pop(context); }),
+            ListTile(leading: const Icon(Icons.account_balance_wallet), title: const Text("Wallet"), onTap: () { setState(() => paymentMethod = "Wallet"); Navigator.pop(context); }),
+            ListTile(leading: const Icon(Icons.qr_code), title: const Text("UPI"), onTap: () { setState(() => paymentMethod = "UPI"); Navigator.pop(context); }),
+          ],
+        ),
       ),
     );
   }
@@ -1083,6 +1186,23 @@ class _BargainScreenState extends State<BargainScreen> {
 
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
+
+      if (msg['type'] == 'joined') {
+        final history = msg['history'] as List?;
+        if (history != null && mounted) {
+          setState(() {
+            msgs.clear();
+            for (var entry in history) {
+              msgs.add({
+                "text": entry['text'],
+                "me": entry['from'] == 'user',
+              });
+            }
+          });
+          _scrollToBottom();
+        }
+        return;
+      }
 
       if (msg['type'] == 'driver_offer') {
         int offer = msg['price'] ?? 0;

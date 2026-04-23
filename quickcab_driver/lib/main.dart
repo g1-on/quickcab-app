@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
@@ -19,6 +20,10 @@ String get wsUrl {
   if (kIsWeb) return 'ws://localhost:8081/ws';
   if (!kIsWeb && Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
   return 'ws://localhost:8081/ws';
+}
+
+String get apiUrl {
+  return wsUrl.replaceAll('wss://', 'https://').replaceAll('ws://', 'http://').replaceAll('/ws', '');
 }
 
 final WebSocketService ws = WebSocketService();
@@ -144,16 +149,40 @@ class DriverProfileState {
     }
   }
 
-  Future<void> register({required String name, required String email, required String model, required String plate}) async {
-    this.name = name;
-    this.email = email;
-    this.vehicleModel = model;
-    this.vehicleNumber = plate;
+  Future<void> login({required String email, required String password}) async {
+    final resp = await http.post(
+      Uri.parse('$apiUrl/api/login'),
+      body: jsonEncode({'email': email, 'password': password, 'role': 'driver'}),
+    );
+    if (resp.statusCode == 200) {
+      final data = jsonDecode(resp.body);
+      await _saveSession(data);
+    } else {
+      throw Exception(jsonDecode(resp.body)['error'] ?? 'Login failed');
+    }
+  }
+
+  Future<void> signup({required String name, required String email, required String password}) async {
+    final resp = await http.post(
+      Uri.parse('$apiUrl/api/signup'),
+      body: jsonEncode({'name': name, 'email': email, 'password': password, 'role': 'driver'}),
+    );
+    if (resp.statusCode == 200) {
+      final data = jsonDecode(resp.body);
+      await _saveSession(data);
+    } else {
+      throw Exception(jsonDecode(resp.body)['error'] ?? 'Signup failed');
+    }
+  }
+
+  Future<void> _saveSession(Map<String, dynamic> data) async {
+    this.driverId = data['id'];
+    this.name = data['name'];
+    this.email = data['email'];
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('driverId', driverId);
     await prefs.setString('name', name);
     await prefs.setString('email', email);
-    await prefs.setString('vehicleModel', model);
-    await prefs.setString('vehicleNumber', plate);
   }
 }
 
@@ -378,11 +407,20 @@ class _LoginScreenState extends State<LoginScreen> {
   final emailController = TextEditingController();
   final passController = TextEditingController();
 
-  void _handleLogin() {
+  void _handleLogin() async {
     if (emailController.text.isNotEmpty && passController.text.isNotEmpty) {
-      ws.connect();
-      ws.syncDriverProfile();
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverHome()));
+      try {
+        await driverState.login(email: emailController.text, password: passController.text);
+        ws.connect();
+        ws.syncDriverProfile();
+        if (mounted) {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DriverHome()));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        }
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter email and password")));
     }
@@ -440,15 +478,30 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
   final nameController = TextEditingController();
   final emailController = TextEditingController();
   final modelController = TextEditingController();
-  final plateController = TextEditingController();
+  final passController = TextEditingController();
 
-  void _handleSignup() {
-    if (nameController.text.isNotEmpty && emailController.text.isNotEmpty && modelController.text.isNotEmpty) {
-      driverState.register(name: nameController.text, email: emailController.text, model: modelController.text, plate: plateController.text);
-      driverState.vehicleNumber = plateController.text;
-      ws.connect();
-      ws.syncDriverProfile();
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const DriverHome()), (route) => false);
+  void _handleSignup() async {
+    if (nameController.text.isNotEmpty && emailController.text.isNotEmpty && passController.text.isNotEmpty) {
+      try {
+        await driverState.signup(
+          name: nameController.text, 
+          email: emailController.text, 
+          password: passController.text,
+        );
+        // Also save vehicle info locally for now (can be added to signup API later)
+        driverState.vehicleModel = modelController.text;
+        driverState.vehicleNumber = plateController.text;
+        
+        ws.connect();
+        ws.syncDriverProfile();
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const DriverHome()), (route) => false);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        }
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Complete your details")));
     }
@@ -470,6 +523,8 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
             QuickCabTextField(controller: nameController, hint: "Full Name", icon: Icons.person_outline),
             const SizedBox(height: 16),
             QuickCabTextField(controller: emailController, hint: "Email address", icon: Icons.email_outlined),
+            const SizedBox(height: 16),
+            QuickCabTextField(controller: passController, hint: "Create Password", icon: Icons.lock_outline, isPassword: true),
             const SizedBox(height: 16),
             const Text("VEHICLE INFO", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue)),
             const SizedBox(height: 12),
@@ -876,6 +931,23 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
 
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
+
+      if (msg['type'] == 'joined') {
+        final history = msg['history'] as List?;
+        if (history != null && mounted) {
+          setState(() {
+            msgs.clear();
+            for (var entry in history) {
+              msgs.add({
+                "text": entry['text'],
+                "me": entry['from'] == 'driver',
+              });
+            }
+          });
+          _scrollToBottom();
+        }
+        return;
+      }
 
       if (msg['type'] == 'user_offer') {
         int offer = msg['price'] ?? 0;

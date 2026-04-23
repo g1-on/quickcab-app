@@ -33,10 +33,36 @@ Future<void> main() async {
 
   final rooms = <String, Set<WebSocket>>{};
   final driverSockets = <WebSocket>{};
-  final acceptState = <String, Map<String, int>>{}; // rideId -> { 'user'|driverId: price }
+  final acceptState = <String, Map<String, int>>{};
+  
+  // Persistent Storage
+  final userFile = File('users_db.json');
+  final driverFile = File('drivers_db.json');
+  final ridesFile = File('rides_db.json');
+  
+  Map<String, dynamic> userDb = {};
+  Map<String, dynamic> driverDb = {};
+  Map<String, dynamic> ridesDb = {};
+
+  if (await userFile.exists()) {
+    try { userDb = jsonDecode(await userFile.readAsString()); } catch(_) {}
+  }
+  if (await driverFile.exists()) {
+    try { driverDb = jsonDecode(await driverFile.readAsString()); } catch(_) {}
+  }
+  if (await ridesFile.exists()) {
+    try { ridesDb = jsonDecode(await ridesFile.readAsString()); } catch(_) {}
+  }
+
+  void saveDbs() async {
+    await userFile.writeAsString(jsonEncode(userDb));
+    await driverFile.writeAsString(jsonEncode(driverDb));
+    await ridesFile.writeAsString(jsonEncode(ridesDb));
+  }
+
   final users = <String, Map<String, dynamic>>{};
   final drivers = <String, Map<String, dynamic>>{};
-  final rides = <String, Map<String, dynamic>>{};
+  final rides = ridesDb; // Use persistent DB for rides too
   final socketDriverId = <WebSocket, String>{};
 
   const adminHtml = '''
@@ -595,6 +621,42 @@ Future<void> main() async {
       continue;
     }
 
+    if (req.uri.path == '/api/signup' && req.method == 'POST') {
+      final body = await utf8.decoder.bind(req).join();
+      final data = jsonDecode(body);
+      final role = data['role']; 
+      final email = data['email'];
+      final password = data['password'];
+      final name = data['name'];
+      final db = role == 'user' ? userDb : driverDb;
+      if (db.containsKey(email)) {
+        req.response..statusCode = 400..write(jsonEncode({'error': 'Email already exists'}))..close();
+        return;
+      }
+      db[email] = {
+        'id': role == 'user' ? "U_${DateTime.now().millisecondsSinceEpoch}" : "D_${DateTime.now().millisecondsSinceEpoch}",
+        'name': name, 'email': email, 'password': password, 'role': role,
+      };
+      saveDbs();
+      req.response..statusCode = 200..write(jsonEncode(db[email]))..close();
+      return;
+    }
+
+    if (req.uri.path == '/api/login' && req.method == 'POST') {
+      final body = await utf8.decoder.bind(req).join();
+      final data = jsonDecode(body);
+      final email = data['email'];
+      final password = data['password'];
+      final role = data['role'];
+      final db = role == 'user' ? userDb : driverDb;
+      if (db.containsKey(email) && db[email]['password'] == password) {
+        req.response..statusCode = 200..write(jsonEncode(db[email]))..close();
+      } else {
+        req.response..statusCode = 401..write(jsonEncode({'error': 'Invalid credentials'}))..close();
+      }
+      return;
+    }
+
     if (req.uri.path != '/ws') {
       req.response.statusCode = HttpStatus.notFound;
       req.response.write('Not found');
@@ -737,7 +799,12 @@ Future<void> main() async {
                 rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
               }
             }
-            socket.add(jsonEncode({'type': 'joined', 'rideId': rideId}));
+            socket.add(jsonEncode({
+              'type': 'joined', 
+              'rideId': rideId,
+              'history': rides.containsKey(rideId) ? rides[rideId]!['logs'] : [],
+            }));
+            saveDbs();
             return;
 
           case 'user_offer':
@@ -769,8 +836,6 @@ Future<void> main() async {
               if (type == 'user_offer') {
                 rides[rideId]!['userOffer'] = price.toInt();
               } else {
-                // We don't store a single driverOffer anymore in the ride object
-                // but we can store the latest one for legacy reasons if needed.
                 rides[rideId]!['driverOffer'] = price.toInt();
               }
               rides[rideId]!['status'] = 'bargaining';
@@ -945,6 +1010,7 @@ Future<void> main() async {
                 'text': text,
               };
               (rides[rideId]!['logs'] as List?)?.add(logEntry);
+              saveDbs();
             }
             return;
 
