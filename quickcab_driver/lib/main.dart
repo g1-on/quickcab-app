@@ -1,6 +1,8 @@
-import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
@@ -152,40 +154,40 @@ class DriverProfileState {
   }
 
   Future<void> login({required String email, required String password}) async {
-    final resp = await http.post(
-      Uri.parse('$apiUrl/api/login'),
-      body: jsonEncode({'email': email, 'password': password, 'role': 'driver'}),
-    );
-    if (resp.statusCode == 200) {
-      final data = jsonDecode(resp.body);
-      await _saveSession(data);
-    } else {
-      throw Exception(jsonDecode(resp.body)['error'] ?? 'Login failed');
+    final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password);
+    final doc = await FirebaseFirestore.instance.collection('drivers').doc(cred.user!.uid).get();
+    if (doc.exists) {
+      await _saveSession(cred.user!.uid, doc.data()!);
     }
   }
 
   Future<void> signup({required String name, required String email, required String password}) async {
-    final resp = await http.post(
-      Uri.parse('$apiUrl/api/signup'),
-      body: jsonEncode({'name': name, 'email': email, 'password': password, 'role': 'driver'}),
-    );
-    if (resp.statusCode == 200) {
-      final data = jsonDecode(resp.body);
-      await _saveSession(data);
-    } else {
-      throw Exception(jsonDecode(resp.body)['error'] ?? 'Signup failed');
-    }
+    final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
+    final data = {
+      'name': name, 
+      'email': email, 
+      'role': 'driver', 
+      'vehicleModel': vehicleModel,
+      'vehicleNumber': vehicleNumber,
+      'createdAt': FieldValue.serverTimestamp()
+    };
+    await FirebaseFirestore.instance.collection('drivers').doc(cred.user!.uid).set(data);
+    await _saveSession(cred.user!.uid, data);
   }
 
-  Future<void> _saveSession(Map<String, dynamic> data) async {
-    this.driverId = data['id'];
+  Future<void> _saveSession(String uid, Map<String, dynamic> data) async {
+    this.driverId = uid;
     this.name = data['name'];
     this.email = data['email'];
+    this.vehicleModel = data['vehicleModel'] ?? vehicleModel;
+    this.vehicleNumber = data['vehicleNumber'] ?? vehicleNumber;
     this.isLoggedIn = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('driverId', driverId);
     await prefs.setString('name', name);
     await prefs.setString('email', email);
+    await prefs.setString('vehicleModel', vehicleModel);
+    await prefs.setString('vehicleNumber', vehicleNumber);
     await prefs.setBool('isLoggedIn', true);
   }
 }
@@ -194,6 +196,7 @@ final driverState = DriverProfileState();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await driverState.init();
   
   SystemChrome.setSystemUIOverlayStyle(

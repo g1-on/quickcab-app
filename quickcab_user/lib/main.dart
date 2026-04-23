@@ -1,6 +1,8 @@
-import 'dart:async';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math';
 import 'dart:ui' show ImageFilter;
@@ -130,33 +132,22 @@ class UserProfileState {
   }
 
   Future<void> login({required String email, required String password}) async {
-    final resp = await http.post(
-      Uri.parse('$apiUrl/api/login'),
-      body: jsonEncode({'email': email, 'password': password, 'role': 'user'}),
-    );
-    if (resp.statusCode == 200) {
-      final data = jsonDecode(resp.body);
-      await _saveSession(data);
-    } else {
-      throw Exception(jsonDecode(resp.body)['error'] ?? 'Login failed');
+    final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password);
+    final doc = await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).get();
+    if (doc.exists) {
+      await _saveSession(cred.user!.uid, doc.data()!);
     }
   }
 
   Future<void> signup({required String name, required String email, required String password}) async {
-    final resp = await http.post(
-      Uri.parse('$apiUrl/api/signup'),
-      body: jsonEncode({'name': name, 'email': email, 'password': password, 'role': 'user'}),
-    );
-    if (resp.statusCode == 200) {
-      final data = jsonDecode(resp.body);
-      await _saveSession(data);
-    } else {
-      throw Exception(jsonDecode(resp.body)['error'] ?? 'Signup failed');
-    }
+    final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
+    final data = {'name': name, 'email': email, 'role': 'user', 'createdAt': FieldValue.serverTimestamp()};
+    await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set(data);
+    await _saveSession(cred.user!.uid, data);
   }
 
-  Future<void> _saveSession(Map<String, dynamic> data) async {
-    this.userId = data['id'];
+  Future<void> _saveSession(String uid, Map<String, dynamic> data) async {
+    this.userId = uid;
     this.name = data['name'];
     this.email = data['email'];
     this.isLoggedIn = true;
@@ -178,6 +169,7 @@ final userState = UserProfileState();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await userState.init();
   
   SystemChrome.setSystemUIOverlayStyle(
@@ -223,7 +215,7 @@ class QuickCabApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const LoginScreen(),
+      home: userState.isLoggedIn ? const HomeScreen() : const LoginScreen(),
     );
   }
 }
