@@ -478,6 +478,7 @@ class _DriverSignupScreenState extends State<DriverSignupScreen> {
   final nameController = TextEditingController();
   final emailController = TextEditingController();
   final modelController = TextEditingController();
+  final plateController = TextEditingController();
   final passController = TextEditingController();
 
   void _handleSignup() async {
