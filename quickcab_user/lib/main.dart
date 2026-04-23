@@ -818,6 +818,7 @@ class _BookingSheetState extends State<BookingSheet> {
       'drop': d,
       'userOffer': price,
       'userId': ws.userId,
+      'userName': userState.name,
       'vehicleType': vehicleType,
       'paymentMethod': paymentMethod,
     });
@@ -1201,6 +1202,39 @@ class _BargainScreenState extends State<BargainScreen> {
     _scrollToBottom();
   }
 
+  void _showPriceDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final priceC = TextEditingController();
+        return AlertDialog(
+          title: const Text("Make a Price Offer", style: TextStyle(fontWeight: FontWeight.w900)),
+          content: TextField(
+            controller: priceC,
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: "Enter amount (e.g. 500)", prefixText: "₹ "),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+            ElevatedButton(
+              onPressed: () {
+                final p = int.tryParse(priceC.text);
+                if (p != null && p > 0) {
+                  ws.send({'type': 'user_offer', 'rideId': widget.rideId, 'price': p});
+                  setState(() { _latestUserPrice = p; });
+                  Navigator.pop(context);
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
+              child: const Text("Send Offer"),
+            ),
+          ],
+        );
+      }
+    );
+  }
+
   void acceptDeal(String driverId, int price) {
     ws.send({
       'type': 'accept',
@@ -1379,19 +1413,29 @@ class _BargainScreenState extends State<BargainScreen> {
             ),
 
           Container(
-            padding: EdgeInsets.only(left: 20, right: 20, top: 10, bottom: MediaQuery.of(context).padding.bottom + 20),
+            padding: EdgeInsets.only(left: 20, right: 20, top: 12, bottom: MediaQuery.of(context).padding.bottom + 12),
             decoration: const BoxDecoration(
               color: Colors.white,
               border: Border(top: BorderSide(color: Color(0xFFEEEEEE))),
             ),
             child: Row(
               children: [
+                // Separate Bargaining Option
+                GestureDetector(
+                  onTap: _showPriceDialog,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(15)),
+                    child: const Icon(Icons.currency_rupee, color: Colors.white, size: 20),
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: TextField(
                     controller: controller,
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.text,
                     decoration: InputDecoration(
-                      hintText: "Update your offer...",
+                      hintText: "Ask driver something...",
                       filled: true,
                       fillColor: const Color(0xFFF3F3F3),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
@@ -1401,7 +1445,7 @@ class _BargainScreenState extends State<BargainScreen> {
                 ),
                 const SizedBox(width: 12),
                 CircleAvatar(
-                  backgroundColor: Colors.black,
+                  backgroundColor: Colors.blueAccent,
                   child: IconButton(icon: const Icon(Icons.send_rounded, color: Colors.white), onPressed: sendOffer),
                 ),
               ],

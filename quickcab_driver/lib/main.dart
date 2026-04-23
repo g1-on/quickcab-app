@@ -528,6 +528,16 @@ class _DriverHomeState extends State<DriverHome> {
   @override
   void initState() {
     super.initState();
+    
+    // Register as a driver to receive ride requests
+    ws.send({
+      'type': 'register_driver',
+      'driverId': ws.driverId,
+      'name': driverState.name,
+      'vehicleModel': driverState.vehicleModel,
+      'vehicleNumber': driverState.vehicleNumber,
+    });
+
     _checkLocation();
     _sub = ws.stream.listen((msg) {
       if (msg['type'] == 'ride_request') {
@@ -979,6 +989,47 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
     _scrollToBottom();
   }
 
+  void _showPriceDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final priceC = TextEditingController();
+        return AlertDialog(
+          title: const Text("Make a Counter Offer", style: TextStyle(fontWeight: FontWeight.w900)),
+          content: TextField(
+            controller: priceC,
+            keyboardType: TextInputType.number,
+            autofocus: true,
+            decoration: const InputDecoration(hintText: "Enter amount (e.g. 600)", prefixText: "₹ "),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+            ElevatedButton(
+              onPressed: () {
+                final p = int.tryParse(priceC.text);
+                if (p != null && p > 0) {
+                  ws.send({
+                    'type': 'driver_offer',
+                    'rideId': widget.rideId,
+                    'driverId': ws.driverId,
+                    'price': p,
+                    'driverName': driverState.name,
+                    'vehicleModel': driverState.vehicleModel,
+                    'vehicleNumber': driverState.vehicleNumber,
+                  });
+                  setState(() { _latestPrice = p; });
+                  Navigator.pop(context);
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
+              child: const Text("Send Offer"),
+            ),
+          ],
+        );
+      }
+    );
+  }
+
   void acceptDeal() {
     ws.send({
       'type': 'accept',
@@ -1083,28 +1134,38 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
              ),
 
           Container(
-            padding: EdgeInsets.only(left: 20, right: 20, top: 10, bottom: MediaQuery.of(context).padding.bottom + 20),
+            padding: EdgeInsets.only(left: 20, right: 20, top: 12, bottom: MediaQuery.of(context).padding.bottom + 12),
             decoration: const BoxDecoration(
               color: Colors.white,
               border: Border(top: BorderSide(color: Color(0xFFEEEEEE))),
             ),
             child: Row(
               children: [
+                GestureDetector(
+                  onTap: _showPriceDialog,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(15)),
+                    child: const Icon(Icons.currency_rupee, color: Colors.white, size: 20),
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: TextField(
                     controller: controller,
-                    keyboardType: TextInputType.number,
+                    keyboardType: TextInputType.text,
                     decoration: InputDecoration(
-                      hintText: "Counter offer...",
+                      hintText: "Reply to user...",
                       filled: true,
                       fillColor: const Color(0xFFF3F3F3),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 CircleAvatar(
-                  backgroundColor: Colors.black,
+                  backgroundColor: Colors.blueAccent,
                   child: IconButton(icon: const Icon(Icons.send_rounded, color: Colors.white), onPressed: sendOffer),
                 ),
               ],
