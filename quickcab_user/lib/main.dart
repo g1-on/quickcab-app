@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:ui' show ImageFilter;
@@ -7,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 // Determines localhost equivalent or reads production environment url
 String get wsUrl {
@@ -16,9 +19,9 @@ String get wsUrl {
   const isLive = bool.fromEnvironment('LIVE', defaultValue: false);
   if (isLive) return 'wss://quickcab-matrix.onrender.com/ws';
 
-  if (kIsWeb) return 'ws://localhost:8080/ws';
-  if (!kIsWeb && Platform.isAndroid) return 'ws://10.0.2.2:8080/ws';
-  return 'ws://localhost:8080/ws';
+  if (kIsWeb) return 'ws://localhost:8081/ws';
+  if (!kIsWeb && Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
+  return 'ws://localhost:8081/ws';
 }
 
 // Global WebSocket Service
@@ -34,8 +37,14 @@ class WebSocketService {
 
   Stream<Map<String, dynamic>> get stream => _controller.stream;
 
+  Timer? _reconnectTimer;
+
   void connect() {
     if (_channel != null) return;
+    _doConnect();
+  }
+
+  void _doConnect() {
     try {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       _channel!.stream.listen(
@@ -48,14 +57,30 @@ class WebSocketService {
             debugPrint("WS Parse Error: $e");
           }
         },
-        onError: (e) => debugPrint("WS Error: $e"),
-        onDone: () => debugPrint("WS Done"),
+        onError: (e) {
+          debugPrint("WS Error: $e");
+          _handleDisconnect();
+        },
+        onDone: () {
+          debugPrint("WS Done");
+          _handleDisconnect();
+        },
       );
 
       syncUserProfile();
     } catch (e) {
       debugPrint("WS Connection Exception: $e");
+      _handleDisconnect();
     }
+  }
+
+  void _handleDisconnect() {
+    _channel = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+      debugPrint("WS Attempting Reconnect...");
+      _doConnect();
+    });
   }
 
   void syncUserProfile() {
@@ -88,17 +113,34 @@ class UserProfileState {
   String email = "guest@example.com";
   bool isLoggedIn = false;
 
-  void updateProfile({required String name, required String email}) {
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    userId = prefs.getString('userId') ?? userId;
+    name = prefs.getString('name') ?? "Guest";
+    email = prefs.getString('email') ?? "guest@example.com";
+    isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    if (prefs.getString('userId') == null) {
+      await prefs.setString('userId', userId);
+    }
+  }
+
+  Future<void> updateProfile({required String name, required String email}) async {
     this.name = name;
     this.email = email;
     this.isLoggedIn = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('name', name);
+    await prefs.setString('email', email);
+    await prefs.setBool('isLoggedIn', true);
   }
 }
 
 final userState = UserProfileState();
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await userState.init();
+  
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -178,28 +220,46 @@ class BlackButton extends StatelessWidget {
   }
 }
 
+class LiveMapWidget extends StatelessWidget {
+  final List<Marker> markers;
+  final LatLng initialCenter;
+  final double initialZoom;
+  final MapController? controller;
+
+  const LiveMapWidget({
+    super.key,
+    this.markers = const [],
+    this.initialCenter = const LatLng(28.6139, 77.2090), // Delhi
+    this.initialZoom = 13.0,
+    this.controller,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FlutterMap(
+      mapController: controller,
+      options: MapOptions(
+        initialCenter: initialCenter,
+        initialZoom: initialZoom,
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.example.app',
+        ),
+        MarkerLayer(markers: markers),
+      ],
+    );
+  }
+}
+
 class MockMapBackground extends StatelessWidget {
   final bool showRipple;
   const MockMapBackground({super.key, this.showRipple = true});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: const Color(0xFFF9FAFB),
-      child: Stack(
-        children: [
-          CustomPaint(painter: GridPainter(), size: Size.infinite),
-          if (showRipple)
-            const Positioned(
-              top: 300,
-              left: 150,
-              child: LocationRipple(),
-            ),
-        ],
-      ),
-    );
+    return const LiveMapWidget();
   }
 }
 
@@ -507,33 +567,85 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text("Where to?", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
-                  const SizedBox(height: 20),
+                  const Text("Where to?", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
+                  const SizedBox(height: 16),
                   GestureDetector(
                     onTap: _openBookingSheet,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(16)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(12)),
                       child: Row(
                         children: const [
-                          Icon(Icons.search_rounded, color: Colors.black, size: 24),
-                          SizedBox(width: 12),
-                          Text("Enter destination", style: TextStyle(fontSize: 18, color: Colors.black54, fontWeight: FontWeight.bold)),
+                          Icon(Icons.search_rounded, color: Colors.black, size: 22),
+                          SizedBox(width: 10),
+                          Text("Enter destination", style: TextStyle(fontSize: 16, color: Colors.black54, fontWeight: FontWeight.w600)),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildFixedRouteChip("Delhi"),
-                      _buildFixedRouteChip("Agra"),
-                      _buildFixedRouteChip("Jaipur"),
+                      _buildQuickAction(Icons.home_rounded, "Home", "Add home address"),
+                      const SizedBox(width: 16),
+                      _buildQuickAction(Icons.work_rounded, "Work", "Add work address"),
                     ],
                   ),
+                  const Divider(height: 32),
+                  const Text("Recent Places", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const SizedBox(height: 12),
+                  _buildRecentItem("Connaught Place", "Delhi, India"),
+                  _buildRecentItem("Agra Fort", "Agra, Uttar Pradesh"),
                 ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickAction(IconData icon, String title, String subtitle) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade200),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.blue, size: 24),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  Text(subtitle, style: const TextStyle(fontSize: 10, color: Colors.grey), overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecentItem(String title, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          const Icon(Icons.history_rounded, color: Colors.grey, size: 20),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              ],
             ),
           ),
         ],
@@ -663,10 +775,9 @@ class BookingSheet extends StatefulWidget {
 }
 
 class _BookingSheetState extends State<BookingSheet> {
-  String pickup = "Delhi";
-  String drop = "Agra";
+  final pickupController = TextEditingController(text: "Delhi");
+  final dropController = TextEditingController(text: "Agra");
   final priceController = TextEditingController();
-  final cities = ["Delhi", "Agra", "Jaipur", "Noida", "Gurugram"];
 
   String vehicleType = "Uber Go";
   String paymentMethod = "Cash";
@@ -680,22 +791,31 @@ class _BookingSheetState extends State<BookingSheet> {
       "Agra-Jaipur": {"Uber Go": 2500, "Uber Premier": 3200, "Uber XL": 4200, "Intercity": 5000},
     };
     
-    String route = "${pickup}-${drop}";
-    String reverseRoute = "${drop}-${pickup}";
+    String p = pickupController.text;
+    String d = dropController.text;
+    String route = "$p-$d";
+    String reverseRoute = "$d-$p";
     
     var base = pricing[route] ?? pricing[reverseRoute] ?? {"Uber Go": 2000, "Uber Premier": 2500, "Uber XL": 3200, "Intercity": 4000};
     return base[vehicleType] ?? 2000;
   }
 
   void requestRide() {
+    String p = pickupController.text.trim();
+    String d = dropController.text.trim();
+    if (p.isEmpty || d.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter both locations")));
+      return;
+    }
+    
     int price = int.tryParse(priceController.text) ?? getEstimatedFare();
     final String rideId = "${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}";
 
     ws.send({
       'type': 'ride_request',
       'rideId': rideId,
-      'pickup': pickup,
-      'drop': drop,
+      'pickup': p,
+      'drop': d,
       'userOffer': price,
       'userId': ws.userId,
       'vehicleType': vehicleType,
@@ -709,8 +829,8 @@ class _BookingSheetState extends State<BookingSheet> {
         builder: (_) => BargainScreen(
           rideId: rideId,
           initialPrice: price,
-          pickup: pickup,
-          drop: drop,
+          pickup: p,
+          drop: d,
           vehicleType: vehicleType,
         ),
       ),
@@ -741,11 +861,11 @@ class _BookingSheetState extends State<BookingSheet> {
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
               children: [
-                const Text("Select Ride", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                _buildLocationField(pickupController, "Pickup Location", Icons.my_location, Colors.blue),
+                const SizedBox(height: 12),
+                _buildLocationField(dropController, "Destination", Icons.location_on, Colors.red),
               ],
             ),
           ),
@@ -766,55 +886,108 @@ class _BookingSheetState extends State<BookingSheet> {
             ),
           ),
           const SizedBox(height: 16),
-          // Ride Options Carousel
-          SizedBox(
-            height: 140,
+          // Ride Options List
+          Expanded(
             child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
               children: [
-                _buildVehicleCard("Uber Go", "Fast & Affordable", 2200, Icons.directions_car_filled_rounded),
-                _buildVehicleCard("Uber Premier", "High-rated drivers", 2800, Icons.stars_rounded),
-                _buildVehicleCard("Uber XL", "Spacious 6-seater", 3500, Icons.airport_shuttle_rounded),
-                _buildVehicleCard("Intercity", "Comfortable outstation", 4500, Icons.map_rounded),
+                _buildVehicleItem("Uber Go", "Fast & Affordable", 2200, Icons.directions_car_filled_rounded),
+                _buildVehicleItem("Uber Premier", "High-rated drivers", 2800, Icons.stars_rounded),
+                _buildVehicleItem("Uber XL", "Spacious 6-seater", 3500, Icons.airport_shuttle_rounded),
+                _buildVehicleItem("Intercity", "Comfortable outstation", 4500, Icons.map_rounded),
               ],
             ),
           ),
-          const Divider(height: 40),
+          const Divider(height: 1),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
+            padding: const EdgeInsets.all(24),
+            child: Column(
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: priceController,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                    decoration: InputDecoration(
-                      labelText: "Your Offer (₹)",
-                      filled: true,
-                      fillColor: const Color(0xFFF3F3F3),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: priceController,
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                        decoration: InputDecoration(
+                          labelText: "Your Offer (₹)",
+                          filled: true,
+                          fillColor: const Color(0xFFF3F3F3),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 56),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: requestRide,
+                      child: const Text("Confirm", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
-                    onPressed: requestRide,
-                    child: const Text("Request", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
+                  ],
                 ),
+                const SizedBox(height: 8),
+                const Text("Price is negotiable with drivers", style: TextStyle(color: Colors.grey, fontSize: 12)),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLocationField(TextEditingController controller, String hint, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(12)),
+      child: TextField(
+        controller: controller,
+        onChanged: (_) => setState(() {}),
+        decoration: InputDecoration(
+          hintText: hint,
+          prefixIcon: Icon(icon, color: color, size: 20),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 16),
+        ),
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+      ),
+    );
+  }
+
+  Widget _buildVehicleItem(String title, String sub, int basePrice, IconData icon) {
+    bool isSelected = vehicleType == title;
+    return GestureDetector(
+      onTap: () => setState(() => vehicleType = title),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.black.withOpacity(0.02) : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isSelected ? Colors.black : Colors.grey.shade200, width: isSelected ? 2 : 1),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.black, size: 36),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+                  Text(sub, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ),
+            Text("₹$basePrice", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+          ],
+        ),
       ),
     );
   }
@@ -888,53 +1061,81 @@ class BargainScreen extends StatefulWidget {
 
 class _BargainScreenState extends State<BargainScreen> {
   List<Map<String, dynamic>> msgs = [];
+  Map<String, Map<String, dynamic>> driverOffers = {}; // driverId -> { price, driverName, ... }
   final controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   late StreamSubscription _sub;
 
-  int _latestPrice = 0;
-  String? currentDriverName;
-  String? currentVehicleModel;
-  String? currentVehicleNumber;
+  int _latestUserPrice = 0;
 
   @override
   void initState() {
     super.initState();
-    _latestPrice = widget.initialPrice;
+    _latestUserPrice = widget.initialPrice;
     msgs.add({"text": "₹${widget.initialPrice} for ${widget.vehicleType}", "me": true});
+
+    ws.send({
+      'type': 'join_ride',
+      'rideId': widget.rideId,
+      'role': 'user',
+    });
 
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
 
       if (msg['type'] == 'driver_offer') {
         int offer = msg['price'] ?? 0;
-        if (offer > 0 && mounted) {
+        String? driverId = msg['driverId'];
+        if (offer > 0 && driverId != null && mounted) {
           setState(() {
-            _latestPrice = offer;
-            currentDriverName = msg['driverName'];
-            currentVehicleModel = msg['vehicleModel'];
-            currentVehicleNumber = msg['vehicleNumber'];
-            msgs.add({"text": "₹$offer", "me": false});
+            driverOffers[driverId] = {
+              'price': offer,
+              'driverName': msg['driverName'] ?? 'Driver',
+              'vehicleModel': msg['vehicleModel'] ?? 'Unknown Vehicle',
+              'vehicleNumber': msg['vehicleNumber'] ?? '---',
+            };
+            msgs.add({"text": "₹$offer from ${msg['driverName'] ?? 'Driver'}", "me": false});
+          });
+          _scrollToBottom();
+        }
+      } else if (msg['type'] == 'user_offer') {
+        if (mounted) {
+          setState(() {
+            msgs.add({"text": "Your new offer: ₹${msg['price']}", "me": true});
           });
           _scrollToBottom();
         }
       } else if (msg['type'] == 'ride_booked' || msg['type'] == 'accept') {
          if (mounted) {
+           final winnerDriverId = msg['driverId'];
+           final winnerOffer = winnerDriverId != null ? driverOffers[winnerDriverId] : null;
+
            Navigator.pushReplacement(
              context,
              MaterialPageRoute(
                builder: (_) => DriverScreen(
                  rideId: widget.rideId,
-                 price: msg['price'] ?? _latestPrice,
+                 price: msg['price'] ?? _latestUserPrice,
                  pickup: widget.pickup,
                  drop: widget.drop,
-                 driverName: msg['driverName'] ?? currentDriverName,
-                 vehicleModel: msg['vehicleModel'] ?? currentVehicleModel,
-                 vehicleNumber: msg['vehicleNumber'] ?? currentVehicleNumber,
+                 driverName: msg['driverName'] ?? winnerOffer?['driverName'],
+                 vehicleModel: msg['vehicleModel'] ?? winnerOffer?['vehicleModel'],
+                 vehicleNumber: msg['vehicleNumber'] ?? winnerOffer?['vehicleNumber'],
                ),
              ),
            );
          }
+      } else if (msg['type'] == 'chat_message') {
+        if (mounted) {
+          setState(() {
+            msgs.add({
+              "text": msg['text'],
+              "me": msg['role'] == 'user',
+              "from": msg['role'] == 'driver' ? (msg['driverName'] ?? 'Driver') : 'You'
+            });
+          });
+          _scrollToBottom();
+        }
       } else if (msg['type'] == 'negotiation_cancelled') {
         if (mounted) {
            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Negotiation cancelled.")));
@@ -943,12 +1144,17 @@ class _BargainScreenState extends State<BargainScreen> {
       }
     });
 
+    // Mock an offer if none received after some time (legacy demo logic)
     Future.delayed(const Duration(seconds: 4), () {
-      if (mounted && msgs.length == 1) {
+      if (mounted && driverOffers.isEmpty) {
         ws.send({
           'type': 'driver_offer',
           'rideId': widget.rideId,
           'price': widget.initialPrice + 150,
+          'driverId': 'D_MOCK_1',
+          'driverName': 'Ravi (Mock)',
+          'vehicleModel': 'Swift Dzire',
+          'vehicleNumber': 'DL 1C AB 1234',
         });
       }
     });
@@ -973,31 +1179,50 @@ class _BargainScreenState extends State<BargainScreen> {
   }
 
   void sendOffer() {
-    int price = int.tryParse(controller.text) ?? 0;
-    if (price <= 0) return;
-    ws.send({'type': 'user_offer', 'rideId': widget.rideId, 'price': price});
-    setState(() {
-      _latestPrice = price;
-      msgs.add({"text": "₹$price", "me": true});
-    });
+    String text = controller.text.trim();
+    if (text.isEmpty) return;
+    
+    int? price = int.tryParse(text);
+    if (price != null && price > 0) {
+      ws.send({'type': 'user_offer', 'rideId': widget.rideId, 'price': price});
+      setState(() {
+        _latestUserPrice = price;
+      });
+    } else {
+      ws.send({
+        'type': 'chat_message', 
+        'rideId': widget.rideId, 
+        'role': 'user', 
+        'text': text,
+        'userName': userState.name,
+      });
+    }
     controller.clear();
     _scrollToBottom();
   }
 
-  void acceptDeal() {
-    ws.send({'type': 'accept', 'rideId': widget.rideId, 'role': 'user', 'price': _latestPrice});
+  void acceptDeal(String driverId, int price) {
+    ws.send({
+      'type': 'accept',
+      'rideId': widget.rideId,
+      'role': 'user',
+      'price': price,
+      'driverId': driverId,
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    bool isDriverTurn = msgs.isNotEmpty && !msgs.last["me"];
+    // Sort offers by price (lowest first)
+    final sortedOffers = driverOffers.entries.toList()
+      ..sort((a, b) => (a.value['price'] as int).compareTo(b.value['price'] as int));
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         title: Column(
           children: [
-            const Text("Finding a driver", style: TextStyle(fontWeight: FontWeight.w900)),
+            const Text("Bargaining with Drivers", style: TextStyle(fontWeight: FontWeight.w900)),
             Text(widget.vehicleType, style: const TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),
@@ -1013,6 +1238,28 @@ class _BargainScreenState extends State<BargainScreen> {
       ),
       body: Column(
         children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F3F3),
+              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.location_on, size: 16, color: Colors.blue),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "${widget.pickup} → ${widget.drop}",
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                Text("Offer: ₹$_latestUserPrice", style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.blue)),
+              ],
+            ),
+          ),
+          
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
@@ -1026,46 +1273,111 @@ class _BargainScreenState extends State<BargainScreen> {
                   children: [
                     Container(
                       margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                       decoration: BoxDecoration(
-                        color: me ? Colors.black : const Color(0xFFEEEEEE),
-                        borderRadius: BorderRadius.circular(16).copyWith(
+                        color: me ? Colors.black : const Color(0xFFF8F9FA),
+                        borderRadius: BorderRadius.circular(12).copyWith(
                           bottomRight: me ? Radius.zero : null,
                           bottomLeft: !me ? Radius.zero : null,
                         ),
+                        border: !me ? Border.all(color: Colors.grey.shade200) : null,
                       ),
                       child: Text(
                         m["text"],
                         style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
                           color: me ? Colors.white : Colors.black,
                         ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(me ? "You" : (currentDriverName ?? "Driver"), style: TextStyle(fontSize: 10, color: Colors.grey[600])),
                     ),
                   ],
                 );
               },
             ),
           ),
-          if (isDriverTurn)
-            Padding(
+
+          if (sortedOffers.isNotEmpty)
+            Container(
               padding: const EdgeInsets.all(20),
-              child: GestureDetector(
-                onTap: acceptDeal,
-                child: Container(
-                  height: 56,
-                  decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(12)),
-                  child: Center(
-                    child: Text("Accept ₹$_latestPrice", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 20, offset: const Offset(0, -5))],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("Active Driver Offers", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 180,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: sortedOffers.length,
+                      itemBuilder: (context, index) {
+                        final entry = sortedOffers[index];
+                        final driverId = entry.key;
+                        final offer = entry.value;
+                        final isLowest = index == 0;
+
+                        return Container(
+                          width: 260,
+                          margin: const EdgeInsets.only(right: 16),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: isLowest ? Colors.black : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+                            border: Border.all(color: isLowest ? Colors.black : Colors.grey.shade200, width: 1.5),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: isLowest ? Colors.white24 : Colors.grey.shade100,
+                                    child: Icon(Icons.person, color: isLowest ? Colors.white : Colors.black),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(offer['driverName'], style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: isLowest ? Colors.white : Colors.black)),
+                                        Text("4.9 ★", style: TextStyle(fontSize: 11, color: isLowest ? Colors.white70 : Colors.grey, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                  Text("₹${offer['price']}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: Color(0xFF00C853))),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Text("${offer['vehicleModel']} • ${offer['vehicleNumber']}", style: TextStyle(fontSize: 11, color: isLowest ? Colors.white70 : Colors.grey, fontWeight: FontWeight.w600)),
+                              const Spacer(),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: isLowest ? Colors.white : Colors.black,
+                                  foregroundColor: isLowest ? Colors.black : Colors.white,
+                                  minimumSize: const Size(double.infinity, 48),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  elevation: 0,
+                                ),
+                                onPressed: () => acceptDeal(driverId, offer['price']),
+                                child: const Text("Accept Offer", style: TextStyle(fontWeight: FontWeight.w900)),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
+
           Container(
             padding: EdgeInsets.only(left: 20, right: 20, top: 10, bottom: MediaQuery.of(context).padding.bottom + 20),
             decoration: const BoxDecoration(
@@ -1079,10 +1391,11 @@ class _BargainScreenState extends State<BargainScreen> {
                     controller: controller,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      hintText: "Enter offer...",
+                      hintText: "Update your offer...",
                       filled: true,
                       fillColor: const Color(0xFFF3F3F3),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                     ),
                   ),
                 ),
@@ -1134,6 +1447,11 @@ class _DriverScreenState extends State<DriverScreen> {
   void initState() {
     super.initState();
     ws.send({
+      'type': 'join_ride',
+      'rideId': widget.rideId,
+      'role': 'user',
+    });
+    ws.send({
       'type': 'set_ride_otp',
       'rideId': widget.rideId,
       'otp': otp,
@@ -1150,8 +1468,14 @@ class _DriverScreenState extends State<DriverScreen> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) =>
-                  TrackingScreen(rideId: widget.rideId),
+              builder: (_) => TrackingScreen(
+                rideId: widget.rideId,
+                pickup: widget.pickup,
+                drop: widget.drop,
+                driverName: widget.driverName,
+                vehicleModel: widget.vehicleModel,
+                vehicleNumber: widget.vehicleNumber,
+              ),
             ),
           );
         }
@@ -1275,12 +1599,12 @@ class _DriverScreenState extends State<DriverScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              "Ravi Sharma",
-                              style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                            Text(
+                              widget.driverName ?? "Ravi Sharma",
+                              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                             ),
                             Text(
-                              "Tesla Model 3 • White",
+                              widget.vehicleModel ?? "Tesla Model 3 • White",
                               style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
                             ),
                           ],
@@ -1293,14 +1617,44 @@ class _DriverScreenState extends State<DriverScreen> {
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.white.withOpacity(0.1)),
                         ),
-                        child: const Text(
-                          "DL 1C AB",
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14),
+                        child: Text(
+                          widget.vehicleNumber ?? "DL 1C AB",
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 28),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.03),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.circle, size: 10, color: Colors.blue),
+                            const SizedBox(width: 12),
+                            Expanded(child: Text(widget.pickup, style: const TextStyle(color: Colors.white, fontSize: 14))),
+                          ],
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: SizedBox(height: 12, child: VerticalDivider(color: Colors.white24, thickness: 1)),
+                        ),
+                        Row(
+                          children: [
+                            const Icon(Icons.location_on, size: 14, color: Colors.red),
+                            const SizedBox(width: 12),
+                            Expanded(child: Text(widget.drop, style: const TextStyle(color: Colors.white, fontSize: 14))),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -1333,7 +1687,21 @@ class _DriverScreenState extends State<DriverScreen> {
 
 class TrackingScreen extends StatefulWidget {
   final String rideId;
-  const TrackingScreen({super.key, required this.rideId});
+  final String pickup;
+  final String drop;
+  final String? driverName;
+  final String? vehicleModel;
+  final String? vehicleNumber;
+
+  const TrackingScreen({
+    super.key,
+    required this.rideId,
+    required this.pickup,
+    required this.drop,
+    this.driverName,
+    this.vehicleModel,
+    this.vehicleNumber,
+  });
 
   @override
   State<TrackingScreen> createState() => _TrackingScreenState();
@@ -1346,6 +1714,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   void initState() {
     super.initState();
+    ws.send({
+      'type': 'join_ride',
+      'rideId': widget.rideId,
+      'role': 'user',
+    });
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
       if (msg['type'] == 'driver_location') {
@@ -1374,6 +1747,14 @@ class _TrackingScreenState extends State<TrackingScreen> {
       body: Stack(
         children: [
           const MockMapBackground(),
+          
+          // Live Taxi Icon
+          Positioned(
+            left: 50 + (250 * progress),
+            top: 400 - (200 * progress),
+            child: const Icon(Icons.local_taxi, size: 40, color: Colors.black),
+          ),
+
           Positioned(
             top: 50, left: 20,
             child: CircleAvatar(
@@ -1403,7 +1784,21 @@ class _TrackingScreenState extends State<TrackingScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 8, height: 8,
+                        decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                      ),
+                      const SizedBox(width: 8),
+                      const Text("LIVE TRACKING", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red, letterSpacing: 1.2)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   const Text("Trip in Progress", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 8),
+                  Text("${widget.pickup} → ${widget.drop}", style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold, fontSize: 12)),
                   const SizedBox(height: 16),
                   LinearProgressIndicator(value: progress, minHeight: 8, borderRadius: BorderRadius.circular(4), color: Colors.black, backgroundColor: Colors.grey[200]),
                   const SizedBox(height: 24),
@@ -1417,9 +1812,12 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       const SizedBox(width: 16),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text("James", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                          Text("Swift Dzire • DL 1C AB 1234", style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)),
+                        children: [
+                          Text(widget.driverName ?? "James", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                          Text(widget.vehicleModel != null && widget.vehicleNumber != null 
+                            ? "${widget.vehicleModel} • ${widget.vehicleNumber}" 
+                            : "Swift Dzire • DL 1C AB 1234", 
+                            style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)),
                         ],
                       ),
                       const Spacer(),

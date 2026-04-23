@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 String get wsUrl {
   const envUrl = String.fromEnvironment('WS_URL');
@@ -13,9 +16,9 @@ String get wsUrl {
   const isLive = bool.fromEnvironment('LIVE', defaultValue: false);
   if (isLive) return 'wss://quickcab-matrix.onrender.com/ws';
 
-  if (kIsWeb) return 'ws://localhost:8080/ws';
-  if (!kIsWeb && Platform.isAndroid) return 'ws://10.0.2.2:8080/ws';
-  return 'ws://localhost:8080/ws';
+  if (kIsWeb) return 'ws://localhost:8081/ws';
+  if (!kIsWeb && Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
+  return 'ws://localhost:8081/ws';
 }
 
 final WebSocketService ws = WebSocketService();
@@ -29,8 +32,13 @@ class WebSocketService {
 
   Stream<Map<String, dynamic>> get stream => _controller.stream;
 
+  Timer? _reconnectTimer;
   void connect() {
     if (_channel != null) return;
+    _doConnect();
+  }
+
+  void _doConnect() {
     try {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       _channel!.stream.listen(
@@ -43,14 +51,30 @@ class WebSocketService {
             debugPrint("WS Parse Error: $e");
           }
         },
-        onError: (e) => debugPrint("WS Error: $e"),
-        onDone: () => debugPrint("WS Done"),
+        onError: (e) {
+          debugPrint("WS Error: $e");
+          _handleDisconnect();
+        },
+        onDone: () {
+          debugPrint("WS Done");
+          _handleDisconnect();
+        },
       );
 
       syncDriverProfile();
     } catch (e) {
       debugPrint("WS Connection Exception: $e");
+      _handleDisconnect();
     }
+  }
+
+  void _handleDisconnect() {
+    _channel = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(const Duration(seconds: 3), () {
+      debugPrint("WS Attempting Reconnect...");
+      _doConnect();
+    });
   }
 
   void syncDriverProfile() {
@@ -108,18 +132,37 @@ class DriverProfileState {
     });
   }
 
-  void register({required String name, required String email, required String model, required String plate}) {
+  Future<void> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    driverId = prefs.getString('driverId') ?? driverId;
+    name = prefs.getString('name') ?? "James Driver";
+    email = prefs.getString('email') ?? "james@quickcab.com";
+    vehicleModel = prefs.getString('vehicleModel') ?? "Swift Dzire";
+    vehicleNumber = prefs.getString('vehicleNumber') ?? "DL 1C AB 1234";
+    if (prefs.getString('driverId') == null) {
+      await prefs.setString('driverId', driverId);
+    }
+  }
+
+  Future<void> register({required String name, required String email, required String model, required String plate}) async {
     this.name = name;
     this.email = email;
     this.vehicleModel = model;
     this.vehicleNumber = plate;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('name', name);
+    await prefs.setString('email', email);
+    await prefs.setString('vehicleModel', model);
+    await prefs.setString('vehicleNumber', plate);
   }
 }
 
 final driverState = DriverProfileState();
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await driverState.init();
+  
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -197,28 +240,46 @@ class BlackButton extends StatelessWidget {
   }
 }
 
+class LiveMapWidget extends StatelessWidget {
+  final List<Marker> markers;
+  final LatLng initialCenter;
+  final double initialZoom;
+  final MapController? controller;
+
+  const LiveMapWidget({
+    super.key,
+    this.markers = const [],
+    this.initialCenter = const LatLng(28.6139, 77.2100), // Delhi
+    this.initialZoom = 13.0,
+    this.controller,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FlutterMap(
+      mapController: controller,
+      options: MapOptions(
+        initialCenter: initialCenter,
+        initialZoom: initialZoom,
+      ),
+      children: [
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.example.app',
+        ),
+        MarkerLayer(markers: markers),
+      ],
+    );
+  }
+}
+
 class MockMapBackground extends StatelessWidget {
   final bool showRipple;
   const MockMapBackground({super.key, this.showRipple = true});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: const Color(0xFFF9FAFB),
-      child: Stack(
-        children: [
-          CustomPaint(painter: GridPainter(), size: Size.infinite),
-          if (showRipple)
-            const Positioned(
-              top: 400,
-              left: 200,
-              child: LocationRipple(),
-            ),
-        ],
-      ),
-    );
+    return const LiveMapWidget();
   }
 }
 
@@ -510,6 +571,7 @@ class _DriverHomeState extends State<DriverHome> {
     final pickup = activeRequest!['pickup'];
     final drop = activeRequest!['drop'];
     final userOffer = activeRequest!['userOffer'] ?? 0;
+    final userName = activeRequest!['userName'];
 
     setState(() { activeRequest = null; });
 
@@ -521,6 +583,7 @@ class _DriverHomeState extends State<DriverHome> {
           pickup: pickup,
           drop: drop,
           userOffer: userOffer,
+          userName: userName,
         ),
       ),
     );
@@ -765,6 +828,7 @@ class DriverBargainScreen extends StatefulWidget {
   final String pickup;
   final String drop;
   final int userOffer;
+  final String? userName;
 
   const DriverBargainScreen({
     super.key,
@@ -772,6 +836,7 @@ class DriverBargainScreen extends StatefulWidget {
     required this.pickup,
     required this.drop,
     required this.userOffer,
+    this.userName,
   });
 
   @override
@@ -792,6 +857,13 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
     _latestPrice = widget.userOffer;
     msgs.add({"text": "₹${widget.userOffer}", "me": false});
 
+    ws.send({
+      'type': 'join_ride',
+      'rideId': widget.rideId,
+      'role': 'driver',
+      'driverId': ws.driverId,
+    });
+
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
 
@@ -804,8 +876,37 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
           });
           _scrollToBottom();
         }
+      } else if (msg['type'] == 'driver_offer') {
+        if (mounted) {
+          setState(() {
+             // Only add if it's from me, or if we want to show other driver offers (usually just me)
+            if (msg['driverId'] == ws.driverId) {
+               msgs.add({"text": "Your new offer: ₹${msg['price']}", "me": true});
+            }
+          });
+          _scrollToBottom();
+        }
+      } else if (msg['type'] == 'chat_message') {
+        if (mounted) {
+          setState(() {
+            msgs.add({
+              "text": msg['text'],
+              "me": msg['role'] == 'driver',
+              "from": msg['role'] == 'user' ? (msg['userName'] ?? 'User') : 'You'
+            });
+          });
+          _scrollToBottom();
+        }
       } else if (msg['type'] == 'ride_booked' || msg['type'] == 'accept') {
         if (mounted) {
+           final winnerDriverId = msg['driverId'];
+           if (winnerDriverId != null && winnerDriverId != ws.driverId) {
+             // Someone else got the ride
+             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Another driver got the ride.")));
+             Navigator.pop(context);
+             return;
+           }
+
            Navigator.pushReplacement(
              context,
              MaterialPageRoute(
@@ -814,6 +915,7 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
                  price: msg['price'] ?? _latestPrice,
                  pickup: widget.pickup,
                  drop: widget.drop,
+                 userName: widget.userName,
                ),
              ),
            );
@@ -846,20 +948,33 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
   }
 
   void sendOffer() {
-    int price = int.tryParse(controller.text) ?? 0;
-    if (price <= 0) return;
-    ws.send({
-      'type': 'driver_offer',
-      'rideId': widget.rideId,
-      'price': price,
-      'driverName': driverState.name,
-      'vehicleModel': driverState.vehicleModel,
-      'vehicleNumber': driverState.vehicleNumber,
-    });
-    setState(() {
-      _latestPrice = price;
-      msgs.add({"text": "₹$price", "me": true});
-    });
+    String text = controller.text.trim();
+    if (text.isEmpty) return;
+    
+    int? price = int.tryParse(text);
+    if (price != null && price > 0) {
+      ws.send({
+        'type': 'driver_offer',
+        'rideId': widget.rideId,
+        'driverId': ws.driverId,
+        'price': price,
+        'driverName': driverState.name,
+        'vehicleModel': driverState.vehicleModel,
+        'vehicleNumber': driverState.vehicleNumber,
+      });
+      setState(() {
+        _latestPrice = price;
+      });
+    } else {
+       ws.send({
+        'type': 'chat_message', 
+        'rideId': widget.rideId, 
+        'role': 'driver', 
+        'text': text,
+        'driverId': ws.driverId,
+        'driverName': driverState.name,
+      });
+    }
     controller.clear();
     _scrollToBottom();
   }
@@ -898,6 +1013,26 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
       ),
       body: Column(
         children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F3F3),
+              border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.location_on, size: 16, color: Colors.black),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "${widget.pickup} → ${widget.drop}",
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
@@ -988,6 +1123,7 @@ class DriverExecutionScreen extends StatefulWidget {
   final int price;
   final String pickup;
   final String drop;
+  final String? userName;
 
   const DriverExecutionScreen({
     super.key,
@@ -995,6 +1131,7 @@ class DriverExecutionScreen extends StatefulWidget {
     required this.price,
     required this.pickup,
     required this.drop,
+    this.userName,
   });
 
   @override
@@ -1010,6 +1147,12 @@ class _DriverExecutionScreenState extends State<DriverExecutionScreen> {
   @override
   void initState() {
     super.initState();
+    ws.send({
+      'type': 'join_ride',
+      'rideId': widget.rideId,
+      'role': 'driver',
+      'driverId': ws.driverId,
+    });
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
 
@@ -1098,6 +1241,8 @@ class _DriverExecutionScreenState extends State<DriverExecutionScreen> {
                       children: [
                         const Text("Arrived at Pickup", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 8),
+                        Text("${widget.pickup} → ${widget.drop}", style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold, fontSize: 12)),
+                        const SizedBox(height: 8),
                          Text("Ask user for OTP to verify.", style: TextStyle(color: Colors.grey[600])),
                         const SizedBox(height: 24),
                         TextField(
@@ -1125,7 +1270,24 @@ class _DriverExecutionScreenState extends State<DriverExecutionScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text("Driving to Drop-off", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 8, height: 8,
+                                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text("LIVE TRACKING", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red, letterSpacing: 1.2)),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(widget.userName != null ? "Driving ${widget.userName} to Drop-off" : "Driving to Drop-off", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                                Text("${widget.pickup} → ${widget.drop}", style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold, fontSize: 11)),
+                              ],
+                            ),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                               decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(20)),

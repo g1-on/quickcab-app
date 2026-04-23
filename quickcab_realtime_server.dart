@@ -20,19 +20,20 @@ import 'dart:io';
 /// - set_ride_otp { rideId, otp }
 /// - verify_start_otp { rideId, otp }
 /// - ride_started { rideId }
+/// - chat_message { rideId, role, text }
 /// - driver_location { rideId, lat, lng, progress }
 ///
 /// The server broadcasts ride_request to all online drivers.
 /// For a given rideId, messages are broadcast to all sockets that joined that ride.
 Future<void> main() async {
-  final port = int.tryParse(Platform.environment['PORT'] ?? '8080') ?? 8080;
+  final port = int.tryParse(Platform.environment['PORT'] ?? '8081') ?? 8081;
   final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
   print('QuickCab realtime server listening on port $port');
   print('Admin panel: http://localhost:$port/admin');
 
   final rooms = <String, Set<WebSocket>>{};
   final driverSockets = <WebSocket>{};
-  final acceptState = <String, Map<String, int>>{}; // rideId -> {role: price}
+  final acceptState = <String, Map<String, int>>{}; // rideId -> { 'user'|driverId: price }
   final users = <String, Map<String, dynamic>>{};
   final drivers = <String, Map<String, dynamic>>{};
   final rides = <String, Map<String, dynamic>>{};
@@ -522,23 +523,50 @@ Future<void> main() async {
     }
   }
 
-  Future<void> bookRideIfMatched(String rideId, Map<String, int> state) async {
+  Future<void> bookRideIfMatched(String rideId, Map<String, int> state, {String? targetDriverId}) async {
     final userPrice = state['user'];
-    final driverPrice = state['driver'];
-    if (userPrice == null || driverPrice == null || userPrice != driverPrice) {
+    if (userPrice == null) return;
+
+    String? winnerDriverId = targetDriverId;
+    int? winningPrice;
+
+    if (winnerDriverId != null) {
+      winningPrice = state[winnerDriverId];
+    } else {
+      // If no specific driver, check if any driver matches the user price
+      for (final entry in state.entries) {
+        if (entry.key != 'user' && entry.value == userPrice) {
+          winnerDriverId = entry.key;
+          winningPrice = entry.value;
+          break;
+        }
+      }
+    }
+
+    if (winnerDriverId == null || winningPrice == null || userPrice != winningPrice) {
       return;
     }
+
     if (rides[rideId]?['status'] == 'booked') return;
+
+    final ride = rides[rideId];
+    final driver = drivers[winnerDriverId];
 
     await broadcastToRoom(rideId, {
       'type': 'ride_booked',
       'rideId': rideId,
-      'price': userPrice,
+      'price': winningPrice,
+      'driverId': winnerDriverId,
+      'driverName': driver?['name'],
+      'vehicleModel': driver?['vehicleModel'],
+      'vehicleNumber': driver?['vehicleNumber'],
     });
-    if (rides.containsKey(rideId)) {
-      rides[rideId]!['status'] = 'booked';
-      rides[rideId]!['finalPrice'] = userPrice;
-      rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
+
+    if (ride != null) {
+      ride['status'] = 'booked';
+      ride['finalPrice'] = winningPrice;
+      ride['driverId'] = winnerDriverId;
+      ride['updatedAt'] = DateTime.now().toIso8601String();
     }
   }
 
@@ -718,31 +746,45 @@ Future<void> main() async {
             final price = msg['price'];
             if (rideId is! String || price is! num) return;
             final state = acceptState.putIfAbsent(rideId, () => <String, int>{});
-            state[type == 'user_offer' ? 'user' : 'driver'] = price.toInt();
+            
+            String key = 'user';
+            if (type == 'driver_offer') {
+              key = (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
+              if (key.isEmpty) return;
+            }
+            
+            state[key] = price.toInt();
             await broadcastToRoom(rideId, {
               'type': type,
               'rideId': rideId,
               'price': price.toInt(),
               if (type == 'driver_offer') ...{
+                'driverId': key,
                 'driverName': msg['driverName'],
                 'vehicleModel': msg['vehicleModel'],
                 'vehicleNumber': msg['vehicleNumber'],
               }
             });
             if (rides.containsKey(rideId)) {
-              rides[rideId]![type == 'user_offer' ? 'userOffer' : 'driverOffer'] =
-                  price.toInt();
+              if (type == 'user_offer') {
+                rides[rideId]!['userOffer'] = price.toInt();
+              } else {
+                // We don't store a single driverOffer anymore in the ride object
+                // but we can store the latest one for legacy reasons if needed.
+                rides[rideId]!['driverOffer'] = price.toInt();
+              }
               rides[rideId]!['status'] = 'bargaining';
               rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
               
               final logEntry = {
                 'ts': rides[rideId]!['updatedAt'],
                 'from': type == 'user_offer' ? 'user' : 'driver',
+                'driverId': type == 'driver_offer' ? key : null,
                 'text': 'Offer: ₹${price.toInt()}',
               };
               (rides[rideId]!['logs'] as List?)?.add(logEntry);
             }
-            await bookRideIfMatched(rideId, state);
+            await bookRideIfMatched(rideId, state, targetDriverId: type == 'driver_offer' ? key : null);
             return;
 
           case 'accept':
@@ -752,13 +794,25 @@ Future<void> main() async {
             if (rideId is! String || role is! String || price is! num) return;
 
             final state = acceptState.putIfAbsent(rideId, () => <String, int>{});
-            state[role] = price.toInt();
+            String key = role;
+            if (role == 'driver') {
+              key = (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
+            } else if (role == 'user' && msg['driverId'] != null) {
+              // User accepts a specific driver's offer
+              key = 'user';
+              state['user'] = price.toInt();
+              await bookRideIfMatched(rideId, state, targetDriverId: msg['driverId']);
+              return;
+            }
+
+            state[key] = price.toInt();
 
             await broadcastToRoom(rideId, {
               'type': 'accept',
               'rideId': rideId,
               'role': role,
               'price': price.toInt(),
+              'driverId': key != 'user' ? key : null,
               'driverName': msg['driverName'],
               'vehicleModel': msg['vehicleModel'],
               'vehicleNumber': msg['vehicleNumber'],
@@ -773,7 +827,7 @@ Future<void> main() async {
               (rides[rideId]!['logs'] as List?)?.add(logEntry);
             }
 
-            await bookRideIfMatched(rideId, state);
+            await bookRideIfMatched(rideId, state, targetDriverId: role == 'driver' ? key : null);
             return;
 
           case 'set_ride_otp':
@@ -864,6 +918,32 @@ Future<void> main() async {
               rides[rideId]!['status'] = 'completed';
               if (finalPrice is num) rides[rideId]!['finalPrice'] = finalPrice.toInt();
               rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
+            }
+            return;
+
+          case 'chat_message':
+            final rideId = msg['rideId'];
+            final text = msg['text'];
+            final role = msg['role'];
+            print("Chat from $role in room $rideId: $text");
+            if (rideId is! String || text is! String || role is! String) return;
+            
+            await broadcastToRoom(rideId, {
+              'type': 'chat_message',
+              'rideId': rideId,
+              'role': role,
+              'text': text,
+              'driverId': role == 'driver' ? (msg['driverId'] ?? socketDriverId[socket]) : null,
+              'userName': role == 'user' ? (msg['userName']) : null,
+            });
+            
+            if (rides.containsKey(rideId)) {
+               final logEntry = {
+                'ts': DateTime.now().toIso8601String(),
+                'from': role,
+                'text': text,
+              };
+              (rides[rideId]!['logs'] as List?)?.add(logEntry);
             }
             return;
 
