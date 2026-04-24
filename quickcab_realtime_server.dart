@@ -720,6 +720,25 @@ Future<void> main() async {
       return;
     }
 
+    if (req.uri.path.startsWith('/driver')) {
+      var path = req.uri.path.replaceFirst('/driver', '');
+      if (path == '' || path == '/') path = '/index.html';
+      final file = File('web$path');
+      if (await file.exists()) {
+        final contentType = path.endsWith('.html') ? 'text/html' : 
+                          path.endsWith('.js') ? 'application/javascript' :
+                          path.endsWith('.css') ? 'text/css' :
+                          path.endsWith('.png') ? 'image/png' : 'text/plain';
+        req.response.headers.contentType = ContentType.parse(contentType);
+        await file.openRead().pipe(req.response);
+      } else {
+        req.response.statusCode = HttpStatus.notFound;
+        req.response.write('Not found: $path');
+        await req.response.close();
+      }
+      continue;
+    }
+
     if (req.uri.path != '/ws') {
       req.response.statusCode = HttpStatus.notFound;
       req.response.write('Not found');

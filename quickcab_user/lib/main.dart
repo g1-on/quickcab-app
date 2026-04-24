@@ -4,9 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'notification_service.dart';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:ui' show ImageFilter;
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +14,8 @@ import 'package:flutter/services.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 // Determines localhost equivalent or reads production environment url
 String get wsUrl {
@@ -29,7 +31,10 @@ String get wsUrl {
 }
 
 String get apiUrl {
-  return wsUrl.replaceAll('wss://', 'https://').replaceAll('ws://', 'http://').replaceAll('/ws', '');
+  return wsUrl
+      .replaceAll('wss://', 'https://')
+      .replaceAll('ws://', 'http://')
+      .replaceAll('/ws', '');
 }
 
 // Global WebSocket Service
@@ -116,7 +121,8 @@ class UserProfileState {
   factory UserProfileState() => _instance;
   UserProfileState._internal();
 
-  String userId = "U_${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}";
+  String userId =
+      "U_${DateTime.now().millisecondsSinceEpoch.toString().substring(5)}";
   String name = "Guest";
   String email = "guest@example.com";
   bool isLoggedIn = false;
@@ -133,25 +139,46 @@ class UserProfileState {
   }
 
   Future<void> login({required String email, required String password}) async {
-    final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password);
-    final doc = await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).get();
+    final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(cred.user!.uid)
+        .get();
     if (doc.exists) {
       await _saveSession(cred.user!.uid, doc.data()!);
     }
   }
 
-  Future<void> signup({required String name, required String email, required String password}) async {
-    final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
-    final data = {'name': name, 'email': email, 'role': 'user', 'createdAt': FieldValue.serverTimestamp()};
-    await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set(data);
+  Future<void> signup({
+    required String name,
+    required String email,
+    required String password,
+  }) async {
+    final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+    final data = {
+      'name': name,
+      'email': email,
+      'role': 'user',
+      'createdAt': FieldValue.serverTimestamp(),
+    };
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(cred.user!.uid)
+        .set(data);
     await _saveSession(cred.user!.uid, data);
   }
 
   Future<void> _saveSession(String uid, Map<String, dynamic> data) async {
-    this.userId = uid;
-    this.name = data['name'];
-    this.email = data['email'];
-    this.isLoggedIn = true;
+    userId = uid;
+    name = data['name'];
+    email = data['email'];
+    isLoggedIn = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('userId', userId);
     await prefs.setString('name', name);
@@ -170,15 +197,18 @@ final userState = UserProfileState();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
     await userState.init();
+    await notificationService.init();
   } catch (e) {
     debugPrint("Firebase Init Error: $e");
     // Continue anyway to avoid white screen
   }
-  
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -283,7 +313,7 @@ class LiveMapWidget extends StatelessWidget {
       children: [
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.app',
+          userAgentPackageName: 'com.example.quickcab_user',
         ),
         MarkerLayer(markers: markers),
       ],
@@ -308,13 +338,17 @@ class LocationRipple extends StatefulWidget {
   State<LocationRipple> createState() => _LocationRippleState();
 }
 
-class _LocationRippleState extends State<LocationRipple> with SingleTickerProviderStateMixin {
+class _LocationRippleState extends State<LocationRipple>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat();
   }
 
   @override
@@ -328,14 +362,19 @@ class _LocationRippleState extends State<LocationRipple> with SingleTickerProvid
     return AnimatedBuilder(
       animation: _controller,
       builder: (context, child) {
-        return Container(
-          width: 100, height: 100,
+        return SizedBox(
+          width: 100,
+          height: 100,
           child: Stack(
             alignment: Alignment.center,
             children: [
               Container(
-                width: 12, height: 12,
-                decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle),
+                width: 12,
+                height: 12,
+                decoration: const BoxDecoration(
+                  color: Colors.blue,
+                  shape: BoxShape.circle,
+                ),
               ),
               Opacity(
                 opacity: 1.0 - _controller.value,
@@ -369,7 +408,7 @@ class GridPainter extends CustomPainter {
     for (double i = 0; i < size.height; i += 50) {
       canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
     }
-    
+
     final roadPaint = Paint()
       ..color = Colors.white
       ..strokeWidth = 15
@@ -399,19 +438,29 @@ class _LoginScreenState extends State<LoginScreen> {
   void _handleLogin() async {
     if (emailController.text.isNotEmpty && passController.text.isNotEmpty) {
       try {
-        await userState.login(email: emailController.text, password: passController.text);
+        await userState.login(
+          email: emailController.text,
+          password: passController.text,
+        );
         ws.connect();
         ws.syncUserProfile();
         if (mounted) {
-          Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+          );
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(e.toString())));
         }
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter credentials")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Please enter credentials")));
     }
   }
 
@@ -425,18 +474,47 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text("QuickCab", style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: -1.5)),
+              const Text(
+                "QuickCab",
+                style: TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1.5,
+                ),
+              ),
               const SizedBox(height: 48),
-              const Text("Welcome back", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+              const Text(
+                "Welcome back",
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 32),
-              QuickCabTextField(controller: emailController, hint: "Email", icon: Icons.email_outlined),
+              QuickCabTextField(
+                controller: emailController,
+                hint: "Email",
+                icon: Icons.email_outlined,
+              ),
               const SizedBox(height: 16),
-              QuickCabTextField(controller: passController, hint: "Password", icon: Icons.lock_outline, isPassword: true),
+              QuickCabTextField(
+                controller: passController,
+                hint: "Password",
+                icon: Icons.lock_outline,
+                isPassword: true,
+              ),
               const SizedBox(height: 32),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 56),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
                 onPressed: _handleLogin,
-                child: const Text("Log In", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                child: const Text(
+                  "Log In",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
               ),
               const SizedBox(height: 24),
               Row(
@@ -444,8 +522,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
                   const Text("Don't have an account? "),
                   GestureDetector(
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SignupScreen())),
-                    child: const Text("Sign Up", style: TextStyle(fontWeight: FontWeight.bold, decoration: TextDecoration.underline)),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SignupScreen()),
+                    ),
+                    child: const Text(
+                      "Sign Up",
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -470,25 +557,35 @@ class _SignupScreenState extends State<SignupScreen> {
   final passController = TextEditingController();
 
   void _handleSignup() async {
-    if (nameController.text.isNotEmpty && emailController.text.isNotEmpty && passController.text.isNotEmpty) {
+    if (nameController.text.isNotEmpty &&
+        emailController.text.isNotEmpty &&
+        passController.text.isNotEmpty) {
       try {
         await userState.signup(
-          name: nameController.text, 
-          email: emailController.text, 
+          name: nameController.text,
+          email: emailController.text,
           password: passController.text,
         );
         ws.connect();
         ws.syncUserProfile();
         if (mounted) {
-          Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const HomeScreen()),
+            (route) => false,
+          );
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(e.toString())));
         }
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please fill all fields")));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Please fill all fields")));
     }
   }
 
@@ -496,25 +593,59 @@ class _SignupScreenState extends State<SignupScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(backgroundColor: Colors.white, elevation: 0, iconTheme: const IconThemeData(color: Colors.black)),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text("Create Account", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: -1)),
+              const Text(
+                "Create Account",
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1,
+                ),
+              ),
               const SizedBox(height: 32),
-              QuickCabTextField(controller: nameController, hint: "Full Name", icon: Icons.person_outline),
+              QuickCabTextField(
+                controller: nameController,
+                hint: "Full Name",
+                icon: Icons.person_outline,
+              ),
               const SizedBox(height: 16),
-              QuickCabTextField(controller: emailController, hint: "Email address", icon: Icons.email_outlined),
+              QuickCabTextField(
+                controller: emailController,
+                hint: "Email address",
+                icon: Icons.email_outlined,
+              ),
               const SizedBox(height: 16),
-              QuickCabTextField(controller: passController, hint: "Password", icon: Icons.lock_outline, isPassword: true),
+              QuickCabTextField(
+                controller: passController,
+                hint: "Password",
+                icon: Icons.lock_outline,
+                isPassword: true,
+              ),
               const SizedBox(height: 32),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 56),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
                 onPressed: _handleSignup,
-                child: const Text("Create Profile", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                child: const Text(
+                  "Create Profile",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
               ),
             ],
           ),
@@ -530,7 +661,13 @@ class QuickCabTextField extends StatelessWidget {
   final IconData icon;
   final bool isPassword;
 
-  const QuickCabTextField({super.key, required this.controller, required this.hint, required this.icon, this.isPassword = false});
+  const QuickCabTextField({
+    super.key,
+    required this.controller,
+    required this.hint,
+    required this.icon,
+    this.isPassword = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -542,7 +679,10 @@ class QuickCabTextField extends StatelessWidget {
         prefixIcon: Icon(icon, color: Colors.black),
         filled: true,
         fillColor: const Color(0xFFF3F3F3),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
         contentPadding: const EdgeInsets.symmetric(vertical: 18),
       ),
     );
@@ -559,6 +699,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  LatLng? _currentLocation;
+
   @override
   void initState() {
     super.initState();
@@ -566,17 +708,45 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _checkLocation() {
-    // Premium location permission sheet simulation
-    Future.delayed(const Duration(seconds: 1), () {
+    Future.delayed(const Duration(seconds: 1), () async {
       if (mounted) {
-        showModalBottomSheet(
-          context: context,
-          isDismissible: false,
-          enableDrag: false,
-          builder: (context) => const LocationPermissionSheet(),
-        );
+        final status = await Permission.locationWhenInUse.status;
+        if (!status.isGranted) {
+          await showModalBottomSheet(
+            context: context,
+            isDismissible: false,
+            enableDrag: false,
+            builder: (context) => const LocationPermissionSheet(),
+          );
+          if (mounted) _determinePosition();
+        } else {
+          _determinePosition();
+        }
       }
     });
+  }
+
+  Future<void> _determinePosition() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+
+    if (permission == LocationPermission.deniedForever) return;
+
+    final position = await Geolocator.getCurrentPosition();
+    if (mounted) {
+      setState(() {
+        _currentLocation = LatLng(position.latitude, position.longitude);
+      });
+    }
   }
 
   void _openBookingSheet() {
@@ -594,44 +764,93 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          const MockMapBackground(),
+          LiveMapWidget(
+            initialCenter: _currentLocation ?? const LatLng(28.6139, 77.2100),
+            markers: _currentLocation != null ? [
+              Marker(
+                point: _currentLocation!,
+                width: 40,
+                height: 40,
+                child: const LocationRipple(),
+              )
+            ] : [],
+          ),
           Positioned(
             top: MediaQuery.of(context).padding.top + 10,
             left: 20,
             child: GestureDetector(
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen())),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProfileScreen()),
+              ),
               child: const CircleAvatar(
                 radius: 26,
                 backgroundColor: Colors.black,
-                child: Icon(Icons.person_rounded, color: Colors.white, size: 28),
+                child: Icon(
+                  Icons.person_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
               ),
             ),
           ),
           Positioned(
-            bottom: 0, left: 0, right: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
             child: Container(
               padding: const EdgeInsets.all(24),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 25, offset: Offset(0, -10))],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 25,
+                    offset: Offset(0, -10),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text("Where to?", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
+                  const Text(
+                    "Where to?",
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   GestureDetector(
                     onTap: _openBookingSheet,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3F3F3),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       child: Row(
                         children: const [
-                          Icon(Icons.search_rounded, color: Colors.black, size: 22),
+                          Icon(
+                            Icons.search_rounded,
+                            color: Colors.black,
+                            size: 22,
+                          ),
                           SizedBox(width: 10),
-                          Text("Enter destination", style: TextStyle(fontSize: 16, color: Colors.black54, fontWeight: FontWeight.w600)),
+                          Text(
+                            "Enter destination",
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.black54,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -639,13 +858,28 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 20),
                   Row(
                     children: [
-                      _buildQuickAction(Icons.home_rounded, "Home", "Add home address"),
+                      _buildQuickAction(
+                        Icons.home_rounded,
+                        "Home",
+                        "Add home address",
+                      ),
                       const SizedBox(width: 16),
-                      _buildQuickAction(Icons.work_rounded, "Work", "Add work address"),
+                      _buildQuickAction(
+                        Icons.work_rounded,
+                        "Work",
+                        "Add work address",
+                      ),
                     ],
                   ),
                   const Divider(height: 32),
-                  const Text("Recent Places", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const Text(
+                    "Recent Places",
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   _buildRecentItem("Connaught Place", "Delhi, India"),
                   _buildRecentItem("Agra Fort", "Agra, Uttar Pradesh"),
@@ -674,8 +908,18 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  Text(subtitle, style: const TextStyle(fontSize: 10, color: Colors.grey), overflow: TextOverflow.ellipsis),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ),
             ),
@@ -696,8 +940,17 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
               ],
             ),
           ),
@@ -711,7 +964,10 @@ class _HomeScreenState extends State<HomeScreen> {
       label: Text(city),
       backgroundColor: const Color(0xFFF3F3F3),
       onPressed: _openBookingSheet,
-      labelStyle: const TextStyle(fontWeight: FontWeight.w900, color: Colors.black),
+      labelStyle: const TextStyle(
+        fontWeight: FontWeight.w900,
+        color: Colors.black,
+      ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
     );
   }
@@ -724,22 +980,51 @@ class LocationPermissionSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(32),
-      decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.location_on_rounded, size: 64, color: Colors.blue),
           const SizedBox(height: 24),
-          const Text("Location Access", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+          const Text(
+            "Location Access",
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+          ),
           const SizedBox(height: 12),
-          const Text("Our maps work best when we know where you are. This helps drivers find you faster.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 15)),
+          const Text(
+            "Our maps work best when we know where you are. This helps drivers find you faster.",
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey, fontSize: 15),
+          ),
           const SizedBox(height: 32),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Allow Access", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 56),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () async {
+              await notificationService.requestPermissions();
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text(
+              "Allow Access",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
           ),
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Maybe Later", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              "Maybe Later",
+              style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+            ),
+          ),
         ],
       ),
     );
@@ -753,50 +1038,134 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(title: const Text("Profile", style: TextStyle(fontWeight: FontWeight.w900))),
+      appBar: AppBar(
+        title: const Text(
+          "Profile",
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
           Row(
             children: [
-              const CircleAvatar(radius: 40, backgroundColor: Color(0xFFF3F3F3), child: Icon(Icons.person, size: 40, color: Colors.black)),
+              const CircleAvatar(
+                radius: 40,
+                backgroundColor: Color(0xFFF3F3F3),
+                child: Icon(Icons.person, size: 40, color: Colors.black),
+              ),
               const SizedBox(width: 20),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(userState.name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
-                  Text(userState.email, style: const TextStyle(color: Colors.grey)),
+                  Text(
+                    userState.name,
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  Text(
+                    userState.email,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
                 ],
               ),
             ],
           ),
           const SizedBox(height: 48),
-          const Text("SAVED PLACES", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.grey)),
+          const Text(
+            "SAVED PLACES",
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: Colors.grey,
+            ),
+          ),
           const SizedBox(height: 16),
-          _buildProfileItem(context, Icons.home_rounded, "Home", "Delhi", onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Home location set to Delhi")));
-          }),
-          _buildProfileItem(context, Icons.work_rounded, "Work", "Noida Sector 62", onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Work location set to Noida")));
-          }),
+          _buildProfileItem(
+            context,
+            Icons.home_rounded,
+            "Home",
+            "Delhi",
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Home location set to Delhi")),
+              );
+            },
+          ),
+          _buildProfileItem(
+            context,
+            Icons.work_rounded,
+            "Work",
+            "Noida Sector 62",
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Work location set to Noida")),
+              );
+            },
+          ),
           const SizedBox(height: 32),
-          const Text("ACCOUNT", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.grey)),
+          const Text(
+            "ACCOUNT",
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: Colors.grey,
+            ),
+          ),
           const SizedBox(height: 16),
-          _buildProfileItem(context, Icons.payments_rounded, "Payment Methods", "Uber Cash, UPI", onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Payment methods management coming soon")));
-          }),
-          _buildProfileItem(context, Icons.history_rounded, "Ride History", "24 recorded trips", onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Loading ride history...")));
-          }),
-          _buildProfileItem(context, Icons.logout_rounded, "Log Out", "End session", color: Colors.red, onTap: () {
-            Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginScreen()), (route) => false);
-          }),
+          _buildProfileItem(
+            context,
+            Icons.payments_rounded,
+            "Payment Methods",
+            "Uber Cash, UPI",
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Payment methods management coming soon"),
+                ),
+              );
+            },
+          ),
+          _buildProfileItem(
+            context,
+            Icons.history_rounded,
+            "Ride History",
+            "24 recorded trips",
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Loading ride history...")),
+              );
+            },
+          ),
+          _buildProfileItem(
+            context,
+            Icons.logout_rounded,
+            "Log Out",
+            "End session",
+            color: Colors.red,
+            onTap: () {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (route) => false,
+              );
+            },
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildProfileItem(BuildContext context, IconData icon, String title, String sub, {Color? color, VoidCallback? onTap}) {
+  Widget _buildProfileItem(
+    BuildContext context,
+    IconData icon,
+    String title,
+    String sub, {
+    Color? color,
+    VoidCallback? onTap,
+  }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -807,10 +1176,23 @@ class ProfileScreen extends StatelessWidget {
             Icon(icon, color: color ?? Colors.black, size: 28),
             const SizedBox(width: 20),
             Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: color)),
-                Text(sub, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-              ]),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                      color: color,
+                    ),
+                  ),
+                  Text(
+                    sub,
+                    style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                ],
+              ),
             ),
             const Icon(Icons.chevron_right_rounded, color: Colors.grey),
           ],
@@ -839,17 +1221,40 @@ class _BookingSheetState extends State<BookingSheet> {
   int getEstimatedFare() {
     // Basic route pricing matrix (One-way)
     Map<String, Map<String, int>> pricing = {
-      "Delhi-Agra": {"Uber Go": 2200, "Uber Premier": 2800, "Uber XL": 3500, "Intercity": 4500},
-      "Delhi-Jaipur": {"Uber Go": 2800, "Uber Premier": 3500, "Uber XL": 4500, "Intercity": 5500},
-      "Agra-Jaipur": {"Uber Go": 2500, "Uber Premier": 3200, "Uber XL": 4200, "Intercity": 5000},
+      "Delhi-Agra": {
+        "Uber Go": 2200,
+        "Uber Premier": 2800,
+        "Uber XL": 3500,
+        "Intercity": 4500,
+      },
+      "Delhi-Jaipur": {
+        "Uber Go": 2800,
+        "Uber Premier": 3500,
+        "Uber XL": 4500,
+        "Intercity": 5500,
+      },
+      "Agra-Jaipur": {
+        "Uber Go": 2500,
+        "Uber Premier": 3200,
+        "Uber XL": 4200,
+        "Intercity": 5000,
+      },
     };
-    
+
     String p = pickupController.text;
     String d = dropController.text;
     String route = "$p-$d";
     String reverseRoute = "$d-$p";
-    
-    var base = pricing[route] ?? pricing[reverseRoute] ?? {"Uber Go": 2000, "Uber Premier": 2500, "Uber XL": 3200, "Intercity": 4000};
+
+    var base =
+        pricing[route] ??
+        pricing[reverseRoute] ??
+        {
+          "Uber Go": 2000,
+          "Uber Premier": 2500,
+          "Uber XL": 3200,
+          "Intercity": 4000,
+        };
     return base[vehicleType] ?? 2000;
   }
 
@@ -857,12 +1262,15 @@ class _BookingSheetState extends State<BookingSheet> {
     String p = pickupController.text.trim();
     String d = dropController.text.trim();
     if (p.isEmpty || d.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter both locations")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter both locations")),
+      );
       return;
     }
-    
+
     int price = int.tryParse(priceController.text) ?? getEstimatedFare();
-    final String rideId = "${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}";
+    final String rideId =
+        "${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}";
 
     ws.send({
       'type': 'ride_request',
@@ -895,7 +1303,7 @@ class _BookingSheetState extends State<BookingSheet> {
   Widget build(BuildContext context) {
     int currentFare = getEstimatedFare();
     if (priceController.text.isEmpty) {
-       priceController.text = currentFare.toString();
+      priceController.text = currentFare.toString();
     }
 
     return Container(
@@ -917,14 +1325,24 @@ class _BookingSheetState extends State<BookingSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Column(
               children: [
-                _buildLocationField(pickupController, "Pickup Location", Icons.my_location, Colors.blue),
+                _buildLocationField(
+                  pickupController,
+                  "Pickup Location",
+                  Icons.my_location,
+                  Colors.blue,
+                ),
                 const SizedBox(height: 12),
-                _buildLocationField(dropController, "Destination", Icons.location_on, Colors.red),
+                _buildLocationField(
+                  dropController,
+                  "Destination",
+                  Icons.location_on,
+                  Colors.red,
+                ),
               ],
             ),
           ),
           const SizedBox(height: 16),
-          
+
           // Category Tabs
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -946,10 +1364,30 @@ class _BookingSheetState extends State<BookingSheet> {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               children: [
-                _buildVehicleItem("Uber Go", "Fast & Affordable", 2200, Icons.directions_car_filled_rounded),
-                _buildVehicleItem("Uber Premier", "High-rated drivers", 2800, Icons.stars_rounded),
-                _buildVehicleItem("Uber XL", "Spacious 6-seater", 3500, Icons.airport_shuttle_rounded),
-                _buildVehicleItem("Intercity", "Comfortable outstation", 4500, Icons.map_rounded),
+                _buildVehicleItem(
+                  "Uber Go",
+                  "Fast & Affordable",
+                  2200,
+                  Icons.directions_car_filled_rounded,
+                ),
+                _buildVehicleItem(
+                  "Uber Premier",
+                  "High-rated drivers",
+                  2800,
+                  Icons.stars_rounded,
+                ),
+                _buildVehicleItem(
+                  "Uber XL",
+                  "Spacious 6-seater",
+                  3500,
+                  Icons.airport_shuttle_rounded,
+                ),
+                _buildVehicleItem(
+                  "Intercity",
+                  "Comfortable outstation",
+                  4500,
+                  Icons.map_rounded,
+                ),
               ],
             ),
           ),
@@ -962,7 +1400,11 @@ class _BookingSheetState extends State<BookingSheet> {
             ),
             child: Row(
               children: [
-                _buildActionChip(Icons.payment, paymentMethod, () => _showPaymentPicker()),
+                _buildActionChip(
+                  Icons.payment,
+                  paymentMethod,
+                  () => _showPaymentPicker(),
+                ),
                 const SizedBox(width: 8),
                 _buildActionChip(Icons.local_offer, "Promo", () {}),
                 const Spacer(),
@@ -982,15 +1424,28 @@ class _BookingSheetState extends State<BookingSheet> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.black,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   elevation: 0,
                 ),
-                child: Text("Confirm $vehicleType", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                child: Text(
+                  "Confirm $vehicleType",
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ),
             ),
           ),
           const SizedBox(height: 12),
-          const Center(child: Text("Price is negotiable with drivers", style: TextStyle(color: Colors.grey, fontSize: 12))),
+          const Center(
+            child: Text(
+              "Price is negotiable with drivers",
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ),
         ],
       ),
     );
@@ -1003,9 +1458,18 @@ class _BookingSheetState extends State<BookingSheet> {
       decoration: BoxDecoration(
         color: isSelected ? Colors.black : Colors.transparent,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: isSelected ? Colors.black : Colors.grey.shade300),
+        border: Border.all(
+          color: isSelected ? Colors.black : Colors.grey.shade300,
+        ),
       ),
-      child: Text(title, style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontSize: 13)),
+      child: Text(
+        title,
+        style: TextStyle(
+          color: isSelected ? Colors.white : Colors.black,
+          fontWeight: FontWeight.bold,
+          fontSize: 13,
+        ),
+      ),
     );
   }
 
@@ -1014,12 +1478,18 @@ class _BookingSheetState extends State<BookingSheet> {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(8)),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F3F3),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Row(
           children: [
             Icon(icon, size: 16),
             const SizedBox(width: 6),
-            Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+            ),
           ],
         ),
       ),
@@ -1034,21 +1504,53 @@ class _BookingSheetState extends State<BookingSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("Select Payment Method", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const Text(
+              "Select Payment Method",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 20),
-            ListTile(leading: const Icon(Icons.money), title: const Text("Cash"), onTap: () { setState(() => paymentMethod = "Cash"); Navigator.pop(context); }),
-            ListTile(leading: const Icon(Icons.account_balance_wallet), title: const Text("Wallet"), onTap: () { setState(() => paymentMethod = "Wallet"); Navigator.pop(context); }),
-            ListTile(leading: const Icon(Icons.qr_code), title: const Text("UPI"), onTap: () { setState(() => paymentMethod = "UPI"); Navigator.pop(context); }),
+            ListTile(
+              leading: const Icon(Icons.money),
+              title: const Text("Cash"),
+              onTap: () {
+                setState(() => paymentMethod = "Cash");
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.account_balance_wallet),
+              title: const Text("Wallet"),
+              onTap: () {
+                setState(() => paymentMethod = "Wallet");
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.qr_code),
+              title: const Text("UPI"),
+              onTap: () {
+                setState(() => paymentMethod = "UPI");
+                Navigator.pop(context);
+              },
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildLocationField(TextEditingController controller, String hint, IconData icon, Color color) {
+  Widget _buildLocationField(
+    TextEditingController controller,
+    String hint,
+    IconData icon,
+    Color color,
+  ) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F3F3),
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: TextField(
         controller: controller,
         onChanged: (_) => setState(() {}),
@@ -1063,7 +1565,12 @@ class _BookingSheetState extends State<BookingSheet> {
     );
   }
 
-  Widget _buildVehicleItem(String title, String sub, int basePrice, IconData icon) {
+  Widget _buildVehicleItem(
+    String title,
+    String sub,
+    int basePrice,
+    IconData icon,
+  ) {
     bool isSelected = vehicleType == title;
     return GestureDetector(
       onTap: () => setState(() => vehicleType = title),
@@ -1073,7 +1580,10 @@ class _BookingSheetState extends State<BookingSheet> {
         decoration: BoxDecoration(
           color: isSelected ? Colors.black.withOpacity(0.02) : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isSelected ? Colors.black : Colors.grey.shade200, width: isSelected ? 2 : 1),
+          border: Border.all(
+            color: isSelected ? Colors.black : Colors.grey.shade200,
+            width: isSelected ? 2 : 1,
+          ),
         ),
         child: Row(
           children: [
@@ -1083,12 +1593,24 @@ class _BookingSheetState extends State<BookingSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
-                  Text(sub, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                    ),
+                  ),
+                  Text(
+                    sub,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
                 ],
               ),
             ),
-            Text("₹$basePrice", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+            Text(
+              "₹$basePrice",
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+            ),
           ],
         ),
       ),
@@ -1100,12 +1622,18 @@ class _BookingSheetState extends State<BookingSheet> {
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(color: const Color(0xFFF3F3F3), borderRadius: BorderRadius.circular(20)),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF3F3F3),
+          borderRadius: BorderRadius.circular(20),
+        ),
         child: Row(
           children: [
             Icon(icon, size: 16, color: Colors.black),
             const SizedBox(width: 6),
-            Text(text, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            Text(
+              text,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+            ),
             const Icon(Icons.keyboard_arrow_down_rounded, size: 16),
           ],
         ),
@@ -1113,7 +1641,12 @@ class _BookingSheetState extends State<BookingSheet> {
     );
   }
 
-  Widget _buildVehicleCard(String title, String sub, int basePrice, IconData icon) {
+  Widget _buildVehicleCard(
+    String title,
+    String sub,
+    int basePrice,
+    IconData icon,
+  ) {
     bool isSelected = vehicleType == title;
     return GestureDetector(
       onTap: () => setState(() => vehicleType = title),
@@ -1124,15 +1657,35 @@ class _BookingSheetState extends State<BookingSheet> {
         decoration: BoxDecoration(
           color: isSelected ? Colors.black : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: isSelected ? Colors.black : Colors.grey.shade200, width: 2),
+          border: Border.all(
+            color: isSelected ? Colors.black : Colors.grey.shade200,
+            width: 2,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: isSelected ? Colors.white : Colors.black, size: 32),
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : Colors.black,
+              size: 32,
+            ),
             const Spacer(),
-            Text(title, style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
-            Text(sub, style: TextStyle(color: isSelected ? Colors.white70 : Colors.grey, fontSize: 10)),
+            Text(
+              title,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.black,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
+            Text(
+              sub,
+              style: TextStyle(
+                color: isSelected ? Colors.white70 : Colors.grey,
+                fontSize: 10,
+              ),
+            ),
           ],
         ),
       ),
@@ -1164,7 +1717,8 @@ class BargainScreen extends StatefulWidget {
 
 class _BargainScreenState extends State<BargainScreen> {
   List<Map<String, dynamic>> msgs = [];
-  Map<String, Map<String, dynamic>> driverOffers = {}; // driverId -> { price, driverName, ... }
+  Map<String, Map<String, dynamic>> driverOffers =
+      {}; // driverId -> { price, driverName, ... }
   final controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   late StreamSubscription _sub;
@@ -1175,13 +1729,12 @@ class _BargainScreenState extends State<BargainScreen> {
   void initState() {
     super.initState();
     _latestUserPrice = widget.initialPrice;
-    msgs.add({"text": "₹${widget.initialPrice} for ${widget.vehicleType}", "me": true});
-
-    ws.send({
-      'type': 'join_ride',
-      'rideId': widget.rideId,
-      'role': 'user',
+    msgs.add({
+      "text": "₹${widget.initialPrice} for ${widget.vehicleType}",
+      "me": true,
     });
+
+    ws.send({'type': 'join_ride', 'rideId': widget.rideId, 'role': 'user'});
 
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
@@ -1192,10 +1745,7 @@ class _BargainScreenState extends State<BargainScreen> {
           setState(() {
             msgs.clear();
             for (var entry in history) {
-              msgs.add({
-                "text": entry['text'],
-                "me": entry['from'] == 'user',
-              });
+              msgs.add({"text": entry['text'], "me": entry['from'] == 'user'});
             }
           });
           _scrollToBottom();
@@ -1207,6 +1757,10 @@ class _BargainScreenState extends State<BargainScreen> {
         int offer = msg['price'] ?? 0;
         String? driverId = msg['driverId'];
         if (offer > 0 && driverId != null && mounted) {
+          notificationService.showNotification(
+            title: "New Offer!",
+            body: "₹$offer from ${msg['driverName'] ?? 'Driver'}",
+          );
           setState(() {
             driverOffers[driverId] = {
               'price': offer,
@@ -1214,7 +1768,10 @@ class _BargainScreenState extends State<BargainScreen> {
               'vehicleModel': msg['vehicleModel'] ?? 'Unknown Vehicle',
               'vehicleNumber': msg['vehicleNumber'] ?? '---',
             };
-            msgs.add({"text": "₹$offer from ${msg['driverName'] ?? 'Driver'}", "me": false});
+            msgs.add({
+              "text": "₹$offer from ${msg['driverName'] ?? 'Driver'}",
+              "me": false,
+            });
           });
           _scrollToBottom();
         }
@@ -1226,40 +1783,55 @@ class _BargainScreenState extends State<BargainScreen> {
           _scrollToBottom();
         }
       } else if (msg['type'] == 'ride_booked' || msg['type'] == 'accept') {
-         if (mounted) {
-           final winnerDriverId = msg['driverId'];
-           final winnerOffer = winnerDriverId != null ? driverOffers[winnerDriverId] : null;
+        if (mounted) {
+          final winnerDriverId = msg['driverId'];
+          final winnerOffer = winnerDriverId != null
+              ? driverOffers[winnerDriverId]
+              : null;
 
-           Navigator.pushReplacement(
-             context,
-             MaterialPageRoute(
-               builder: (_) => DriverScreen(
-                 rideId: widget.rideId,
-                 price: msg['price'] ?? _latestUserPrice,
-                 pickup: widget.pickup,
-                 drop: widget.drop,
-                 driverName: msg['driverName'] ?? winnerOffer?['driverName'],
-                 vehicleModel: msg['vehicleModel'] ?? winnerOffer?['vehicleModel'],
-                 vehicleNumber: msg['vehicleNumber'] ?? winnerOffer?['vehicleNumber'],
-               ),
-             ),
-           );
-         }
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DriverScreen(
+                rideId: widget.rideId,
+                price: msg['price'] ?? _latestUserPrice,
+                pickup: widget.pickup,
+                drop: widget.drop,
+                driverName: msg['driverName'] ?? winnerOffer?['driverName'],
+                vehicleModel:
+                    msg['vehicleModel'] ?? winnerOffer?['vehicleModel'],
+                vehicleNumber:
+                    msg['vehicleNumber'] ?? winnerOffer?['vehicleNumber'],
+              ),
+            ),
+          );
+        }
       } else if (msg['type'] == 'chat_message') {
         if (mounted) {
+          if (msg['role'] == 'user') return; // Already added locally
+          if (msg['role'] == 'driver') {
+            notificationService.showNotification(
+              title: "Message from Driver",
+              body: msg['text'],
+            );
+          }
           setState(() {
             msgs.add({
               "text": msg['text'],
               "me": msg['role'] == 'user',
-              "from": msg['role'] == 'driver' ? (msg['driverName'] ?? 'Driver') : 'You'
+              "from": msg['role'] == 'driver'
+                  ? (msg['driverName'] ?? 'Driver')
+                  : 'You',
             });
           });
           _scrollToBottom();
         }
       } else if (msg['type'] == 'negotiation_cancelled') {
         if (mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Negotiation cancelled.")));
-           Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Negotiation cancelled.")),
+          );
+          Navigator.pop(context);
         }
       }
     });
@@ -1301,7 +1873,7 @@ class _BargainScreenState extends State<BargainScreen> {
   void sendOffer() {
     String text = controller.text.trim();
     if (text.isEmpty) return;
-    
+
     int? price = int.tryParse(text);
     if (price != null && price > 0) {
       ws.send({'type': 'user_offer', 'rideId': widget.rideId, 'price': price});
@@ -1310,11 +1882,19 @@ class _BargainScreenState extends State<BargainScreen> {
       });
     } else {
       ws.send({
-        'type': 'chat_message', 
-        'rideId': widget.rideId, 
-        'role': 'user', 
+        'type': 'chat_message',
+        'rideId': widget.rideId,
+        'role': 'user',
         'text': text,
         'userName': userState.name,
+      });
+      // Show locally immediately for better UX
+      setState(() {
+        msgs.add({
+          "text": text,
+          "me": true,
+          "from": "You",
+        });
       });
     }
     controller.clear();
@@ -1327,30 +1907,48 @@ class _BargainScreenState extends State<BargainScreen> {
       builder: (context) {
         final priceC = TextEditingController();
         return AlertDialog(
-          title: const Text("Make a Price Offer", style: TextStyle(fontWeight: FontWeight.w900)),
+          title: const Text(
+            "Make a Price Offer",
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
           content: TextField(
             controller: priceC,
             keyboardType: TextInputType.number,
             autofocus: true,
-            decoration: const InputDecoration(hintText: "Enter amount (e.g. 500)", prefixText: "₹ "),
+            decoration: const InputDecoration(
+              hintText: "Enter amount (e.g. 500)",
+              prefixText: "₹ ",
+            ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancel"),
+            ),
             ElevatedButton(
               onPressed: () {
                 final p = int.tryParse(priceC.text);
                 if (p != null && p > 0) {
-                  ws.send({'type': 'user_offer', 'rideId': widget.rideId, 'price': p});
-                  setState(() { _latestUserPrice = p; });
+                  ws.send({
+                    'type': 'user_offer',
+                    'rideId': widget.rideId,
+                    'price': p,
+                  });
+                  setState(() {
+                    _latestUserPrice = p;
+                  });
                   Navigator.pop(context);
                 }
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+              ),
               child: const Text("Send Offer"),
             ),
           ],
         );
-      }
+      },
     );
   }
 
@@ -1368,25 +1966,33 @@ class _BargainScreenState extends State<BargainScreen> {
   Widget build(BuildContext context) {
     // Sort offers by price (lowest first)
     final sortedOffers = driverOffers.entries.toList()
-      ..sort((a, b) => (a.value['price'] as int).compareTo(b.value['price'] as int));
+      ..sort(
+        (a, b) => (a.value['price'] as int).compareTo(b.value['price'] as int),
+      );
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         title: Column(
           children: [
-            const Text("Bargaining with Drivers", style: TextStyle(fontWeight: FontWeight.w900)),
-            Text(widget.vehicleType, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            const Text(
+              "Bargaining with Drivers",
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+            Text(
+              widget.vehicleType,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
           ],
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.close, color: Colors.red),
             onPressed: () {
-               ws.send({'type': 'cancel_negotiation', 'rideId': widget.rideId});
-               Navigator.pop(context);
+              ws.send({'type': 'cancel_negotiation', 'rideId': widget.rideId});
+              Navigator.pop(context);
             },
-          )
+          ),
         ],
       ),
       body: Column(
@@ -1404,15 +2010,24 @@ class _BargainScreenState extends State<BargainScreen> {
                 Expanded(
                   child: Text(
                     "${widget.pickup} → ${widget.drop}",
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                Text("Offer: ₹$_latestUserPrice", style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.blue)),
+                Text(
+                  "Offer: ₹$_latestUserPrice",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    color: Colors.blue,
+                  ),
+                ),
               ],
             ),
           ),
-          
+
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
@@ -1422,18 +2037,25 @@ class _BargainScreenState extends State<BargainScreen> {
                 var m = msgs[index];
                 bool me = m["me"];
                 return Column(
-                  crossAxisAlignment: me ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                  crossAxisAlignment: me
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.start,
                   children: [
                     Container(
                       margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: me ? Colors.black : const Color(0xFFF8F9FA),
                         borderRadius: BorderRadius.circular(12).copyWith(
                           bottomRight: me ? Radius.zero : null,
                           bottomLeft: !me ? Radius.zero : null,
                         ),
-                        border: !me ? Border.all(color: Colors.grey.shade200) : null,
+                        border: !me
+                            ? Border.all(color: Colors.grey.shade200)
+                            : null,
                       ),
                       child: Text(
                         m["text"],
@@ -1455,14 +2077,25 @@ class _BargainScreenState extends State<BargainScreen> {
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 20, offset: const Offset(0, -5))],
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 20,
+                    offset: const Offset(0, -5),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text("Active Driver Offers", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                  const Text(
+                    "Active Driver Offers",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                  ),
                   const SizedBox(height: 12),
                   SizedBox(
                     height: 180,
@@ -1482,8 +2115,19 @@ class _BargainScreenState extends State<BargainScreen> {
                           decoration: BoxDecoration(
                             color: isLowest ? Colors.black : Colors.white,
                             borderRadius: BorderRadius.circular(20),
-                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
-                            border: Border.all(color: isLowest ? Colors.black : Colors.grey.shade200, width: 1.5),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.05),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                            border: Border.all(
+                              color: isLowest
+                                  ? Colors.black
+                                  : Colors.grey.shade200,
+                              width: 1.5,
+                            ),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1491,35 +2135,87 @@ class _BargainScreenState extends State<BargainScreen> {
                               Row(
                                 children: [
                                   CircleAvatar(
-                                    backgroundColor: isLowest ? Colors.white24 : Colors.grey.shade100,
-                                    child: Icon(Icons.person, color: isLowest ? Colors.white : Colors.black),
+                                    backgroundColor: isLowest
+                                        ? Colors.white24
+                                        : Colors.grey.shade100,
+                                    child: Icon(
+                                      Icons.person,
+                                      color: isLowest
+                                          ? Colors.white
+                                          : Colors.black,
+                                    ),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        Text(offer['driverName'], style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: isLowest ? Colors.white : Colors.black)),
-                                        Text("4.9 ★", style: TextStyle(fontSize: 11, color: isLowest ? Colors.white70 : Colors.grey, fontWeight: FontWeight.bold)),
+                                        Text(
+                                          offer['driverName'],
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 15,
+                                            color: isLowest
+                                                ? Colors.white
+                                                : Colors.black,
+                                          ),
+                                        ),
+                                        Text(
+                                          "4.9 ★",
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: isLowest
+                                                ? Colors.white70
+                                                : Colors.grey,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
-                                  Text("₹${offer['price']}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: Color(0xFF00C853))),
+                                  Text(
+                                    "₹${offer['price']}",
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 20,
+                                      color: Color(0xFF00C853),
+                                    ),
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 12),
-                              Text("${offer['vehicleModel']} • ${offer['vehicleNumber']}", style: TextStyle(fontSize: 11, color: isLowest ? Colors.white70 : Colors.grey, fontWeight: FontWeight.w600)),
+                              Text(
+                                "${offer['vehicleModel']} • ${offer['vehicleNumber']}",
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isLowest
+                                      ? Colors.white70
+                                      : Colors.grey,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                               const Spacer(),
                               ElevatedButton(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: isLowest ? Colors.white : Colors.black,
-                                  foregroundColor: isLowest ? Colors.black : Colors.white,
+                                  backgroundColor: isLowest
+                                      ? Colors.white
+                                      : Colors.black,
+                                  foregroundColor: isLowest
+                                      ? Colors.black
+                                      : Colors.white,
                                   minimumSize: const Size(double.infinity, 48),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
                                   elevation: 0,
                                 ),
-                                onPressed: () => acceptDeal(driverId, offer['price']),
-                                child: const Text("Accept Offer", style: TextStyle(fontWeight: FontWeight.w900)),
+                                onPressed: () =>
+                                    acceptDeal(driverId, offer['price']),
+                                child: const Text(
+                                  "Accept Offer",
+                                  style: TextStyle(fontWeight: FontWeight.w900),
+                                ),
                               ),
                             ],
                           ),
@@ -1532,7 +2228,12 @@ class _BargainScreenState extends State<BargainScreen> {
             ),
 
           Container(
-            padding: EdgeInsets.only(left: 20, right: 20, top: 12, bottom: MediaQuery.of(context).padding.bottom + 12),
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 12,
+              bottom: MediaQuery.of(context).padding.bottom + 12,
+            ),
             decoration: const BoxDecoration(
               color: Colors.white,
               border: Border(top: BorderSide(color: Color(0xFFEEEEEE))),
@@ -1544,8 +2245,15 @@ class _BargainScreenState extends State<BargainScreen> {
                   onTap: _showPriceDialog,
                   child: Container(
                     padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(15)),
-                    child: const Icon(Icons.currency_rupee, color: Colors.white, size: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: const Icon(
+                      Icons.currency_rupee,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1557,15 +2265,24 @@ class _BargainScreenState extends State<BargainScreen> {
                       hintText: "Ask driver something...",
                       filled: true,
                       fillColor: const Color(0xFFF3F3F3),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 12),
                 CircleAvatar(
                   backgroundColor: Colors.blueAccent,
-                  child: IconButton(icon: const Icon(Icons.send_rounded, color: Colors.white), onPressed: sendOffer),
+                  child: IconButton(
+                    icon: const Icon(Icons.send_rounded, color: Colors.white),
+                    onPressed: sendOffer,
+                  ),
                 ),
               ],
             ),
@@ -1609,11 +2326,7 @@ class _DriverScreenState extends State<DriverScreen> {
   @override
   void initState() {
     super.initState();
-    ws.send({
-      'type': 'join_ride',
-      'rideId': widget.rideId,
-      'role': 'user',
-    });
+    ws.send({'type': 'join_ride', 'rideId': widget.rideId, 'role': 'user'});
     ws.send({
       'type': 'set_ride_otp',
       'rideId': widget.rideId,
@@ -1695,7 +2408,11 @@ class _DriverScreenState extends State<DriverScreen> {
                       ),
                     ],
                   ),
-                  child: const Icon(Icons.local_taxi_rounded, size: 48, color: Colors.white),
+                  child: const Icon(
+                    Icons.local_taxi_rounded,
+                    size: 48,
+                    color: Colors.white,
+                  ),
                 );
               },
             ),
@@ -1710,7 +2427,11 @@ class _DriverScreenState extends State<DriverScreen> {
                 color: const Color(0xFF1A1D23),
                 borderRadius: BorderRadius.circular(32),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 40, offset: const Offset(0, 10)),
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.5),
+                    blurRadius: 40,
+                    offset: const Offset(0, 10),
+                  ),
                 ],
                 border: Border.all(color: Colors.white.withOpacity(0.05)),
               ),
@@ -1726,24 +2447,41 @@ class _DriverScreenState extends State<DriverScreen> {
                         children: [
                           const Text(
                             "Driver is arriving",
-                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
                             "Provide OTP: $otp",
-                            style: const TextStyle(color: Color(0xFF00D2FF), fontSize: 16, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                              color: Color(0xFF00D2FF),
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ],
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(colors: [Color(0xFF4D7CFF), Color(0xFF0061FF)]),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF4D7CFF), Color(0xFF0061FF)],
+                          ),
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(
                           "₹${widget.price}",
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
                         ),
                       ),
                     ],
@@ -1764,25 +2502,41 @@ class _DriverScreenState extends State<DriverScreen> {
                           children: [
                             Text(
                               widget.driverName ?? "Ravi Sharma",
-                              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             Text(
                               widget.vehicleModel ?? "Tesla Model 3 • White",
-                              style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 14),
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.5),
+                                fontSize: 14,
+                              ),
                             ),
                           ],
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.05),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.white.withOpacity(0.1)),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.1),
+                          ),
                         ),
                         child: Text(
                           widget.vehicleNumber ?? "DL 1C AB",
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 14,
+                          ),
                         ),
                       ),
                     ],
@@ -1798,20 +2552,50 @@ class _DriverScreenState extends State<DriverScreen> {
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.circle, size: 10, color: Colors.blue),
+                            const Icon(
+                              Icons.circle,
+                              size: 10,
+                              color: Colors.blue,
+                            ),
                             const SizedBox(width: 12),
-                            Expanded(child: Text(widget.pickup, style: const TextStyle(color: Colors.white, fontSize: 14))),
+                            Expanded(
+                              child: Text(
+                                widget.pickup,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                         const Padding(
                           padding: EdgeInsets.only(left: 4),
-                          child: SizedBox(height: 12, child: VerticalDivider(color: Colors.white24, thickness: 1)),
+                          child: SizedBox(
+                            height: 12,
+                            child: VerticalDivider(
+                              color: Colors.white24,
+                              thickness: 1,
+                            ),
+                          ),
                         ),
                         Row(
                           children: [
-                            const Icon(Icons.location_on, size: 14, color: Colors.red),
+                            const Icon(
+                              Icons.location_on,
+                              size: 14,
+                              color: Colors.red,
+                            ),
                             const SizedBox(width: 12),
-                            Expanded(child: Text(widget.drop, style: const TextStyle(color: Colors.white, fontSize: 14))),
+                            Expanded(
+                              child: Text(
+                                widget.drop,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ],
@@ -1827,11 +2611,21 @@ class _DriverScreenState extends State<DriverScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF4D7CFF))),
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xFF4D7CFF),
+                          ),
+                        ),
                         const SizedBox(width: 16),
                         Text(
                           "Verifying your security code...",
-                          style: TextStyle(color: Colors.white.withOpacity(0.4), fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.4),
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
@@ -1877,20 +2671,21 @@ class _TrackingScreenState extends State<TrackingScreen> {
   @override
   void initState() {
     super.initState();
-    ws.send({
-      'type': 'join_ride',
-      'rideId': widget.rideId,
-      'role': 'user',
-    });
+    ws.send({'type': 'join_ride', 'rideId': widget.rideId, 'role': 'user'});
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
       if (msg['type'] == 'driver_location') {
-        if (mounted) setState(() { progress = msg['progress'] ?? progress; });
+        if (mounted)
+          setState(() {
+            progress = msg['progress'] ?? progress;
+          });
       } else if (msg['type'] == 'ride_complete') {
         if (mounted) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => RatingScreen(rideId: widget.rideId)),
+            MaterialPageRoute(
+              builder: (_) => RatingScreen(rideId: widget.rideId),
+            ),
           );
         }
       }
@@ -1910,7 +2705,7 @@ class _TrackingScreenState extends State<TrackingScreen> {
       body: Stack(
         children: [
           const MockMapBackground(),
-          
+
           // Live Taxi Icon
           Positioned(
             left: 50 + (250 * progress),
@@ -1919,24 +2714,33 @@ class _TrackingScreenState extends State<TrackingScreen> {
           ),
 
           Positioned(
-            top: 50, left: 20,
+            top: 50,
+            left: 20,
             child: CircleAvatar(
               backgroundColor: Colors.white,
-              child: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => Navigator.pop(context)),
+              child: IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.black),
+                onPressed: () => Navigator.pop(context),
+              ),
             ),
           ),
           Positioned(
-            top: 50, right: 20,
+            top: 50,
+            right: 20,
             child: FloatingActionButton.small(
               backgroundColor: Colors.red,
               onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Emergency SOS Alert Sent!")));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Emergency SOS Alert Sent!")),
+                );
               },
               child: const Icon(Icons.security, color: Colors.white),
             ),
           ),
           Positioned(
-            bottom: 30, left: 20, right: 20,
+            bottom: 30,
+            left: 20,
+            right: 20,
             child: Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
@@ -1951,19 +2755,47 @@ class _TrackingScreenState extends State<TrackingScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        width: 8, height: 8,
-                        decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
                       ),
                       const SizedBox(width: 8),
-                      const Text("LIVE TRACKING", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.red, letterSpacing: 1.2)),
+                      const Text(
+                        "LIVE TRACKING",
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  const Text("Trip in Progress", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                  const Text(
+                    "Trip in Progress",
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  ),
                   const SizedBox(height: 8),
-                  Text("${widget.pickup} → ${widget.drop}", style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold, fontSize: 12)),
+                  Text(
+                    "${widget.pickup} → ${widget.drop}",
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
                   const SizedBox(height: 16),
-                  LinearProgressIndicator(value: progress, minHeight: 8, borderRadius: BorderRadius.circular(4), color: Colors.black, backgroundColor: Colors.grey[200]),
+                  LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 8,
+                    borderRadius: BorderRadius.circular(4),
+                    color: Colors.black,
+                    backgroundColor: Colors.grey[200],
+                  ),
                   const SizedBox(height: 24),
                   Row(
                     children: [
@@ -1976,15 +2808,34 @@ class _TrackingScreenState extends State<TrackingScreen> {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(widget.driverName ?? "James", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
-                          Text(widget.vehicleModel != null && widget.vehicleNumber != null 
-                            ? "${widget.vehicleModel} • ${widget.vehicleNumber}" 
-                            : "Swift Dzire • DL 1C AB 1234", 
-                            style: const TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.bold)),
+                          Text(
+                            widget.driverName ?? "James",
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 18,
+                            ),
+                          ),
+                          Text(
+                            widget.vehicleModel != null &&
+                                    widget.vehicleNumber != null
+                                ? "${widget.vehicleModel} • ${widget.vehicleNumber}"
+                                : "Swift Dzire • DL 1C AB 1234",
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                         ],
                       ),
                       const Spacer(),
-                      CircleAvatar(backgroundColor: const Color(0xFFF3F3F3), child: IconButton(icon: const Icon(Icons.phone, color: Colors.black), onPressed: () {})),
+                      CircleAvatar(
+                        backgroundColor: const Color(0xFFF3F3F3),
+                        child: IconButton(
+                          icon: const Icon(Icons.phone, color: Colors.black),
+                          onPressed: () {},
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -2018,15 +2869,32 @@ class _RatingScreenState extends State<RatingScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text("How was your trip?", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: -1)),
+              const Text(
+                "How was your trip?",
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -1,
+                ),
+              ),
               const SizedBox(height: 12),
-              const Text("Your feedback helps us maintain the QuickCab pulse.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)),
+              const Text(
+                "Your feedback helps us maintain the QuickCab pulse.",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey, fontSize: 16),
+              ),
               const SizedBox(height: 48),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(5, (index) {
                   return IconButton(
-                    icon: Icon(index < rating ? Icons.star_rounded : Icons.star_outline_rounded, size: 56, color: Colors.amber),
+                    icon: Icon(
+                      index < rating
+                          ? Icons.star_rounded
+                          : Icons.star_outline_rounded,
+                      size: 56,
+                      color: Colors.amber,
+                    ),
                     onPressed: () => setState(() => rating = index + 1),
                   );
                 }),
@@ -2037,13 +2905,27 @@ class _RatingScreenState extends State<RatingScreen> {
                   backgroundColor: Colors.black,
                   foregroundColor: Colors.white,
                   minimumSize: const Size(double.infinity, 60),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 onPressed: () {
-                  ws.send({'type': 'submit_rating', 'rideId': widget.rideId, 'role': 'user', 'rating': rating});
-                  Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (route) => false);
+                  ws.send({
+                    'type': 'submit_rating',
+                    'rideId': widget.rideId,
+                    'role': 'user',
+                    'rating': rating,
+                  });
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => const HomeScreen()),
+                    (route) => false,
+                  );
                 },
-                child: const Text("Submit", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+                child: const Text(
+                  "Submit",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+                ),
               ),
             ],
           ),

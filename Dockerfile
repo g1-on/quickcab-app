@@ -14,6 +14,7 @@ FROM scratch
 LABEL maintainer="QuickCab"
 COPY --from=build /runtime/ /
 COPY --from=build /app/server /server
+COPY web /web
 
 # Render dynamically passes PORT
 ENV PORT=8080
