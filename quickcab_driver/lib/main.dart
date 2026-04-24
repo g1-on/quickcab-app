@@ -153,15 +153,18 @@ class DriverProfileState {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    driverId = prefs.getString('driverId') ?? driverId;
-    name = prefs.getString('name') ?? "James Driver";
-    email = prefs.getString('email') ?? "james@quickcab.com";
-    vehicleModel = prefs.getString('vehicleModel') ?? "Swift Dzire";
-    vehicleNumber = prefs.getString('vehicleNumber') ?? "DL 1C AB 1234";
-    isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-    if (prefs.getString('driverId') == null) {
+    final savedId = prefs.getString('driverId');
+    if (savedId != null) {
+      driverId = savedId;
+    } else {
       await prefs.setString('driverId', driverId);
     }
+    
+    name = prefs.getString('name') ?? name;
+    email = prefs.getString('email') ?? email;
+    vehicleModel = prefs.getString('vehicleModel') ?? vehicleModel;
+    vehicleNumber = prefs.getString('vehicleNumber') ?? vehicleNumber;
+    isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
   }
 
   Future<void> login({required String email, required String password}) async {
@@ -746,6 +749,9 @@ class _DriverHomeState extends State<DriverHome> {
   @override
   void initState() {
     super.initState();
+
+    // Ensure WebSocket is connected
+    ws.connect();
 
     // Register as a driver to receive ride requests
     ws.send({

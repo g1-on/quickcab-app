@@ -132,13 +132,16 @@ class UserProfileState {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    userId = prefs.getString('userId') ?? userId;
-    name = prefs.getString('name') ?? "Guest";
-    email = prefs.getString('email') ?? "guest@example.com";
-    isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-    if (prefs.getString('userId') == null) {
+    final savedId = prefs.getString('userId');
+    if (savedId != null) {
+      userId = savedId;
+    } else {
       await prefs.setString('userId', userId);
     }
+    
+    name = prefs.getString('name') ?? name;
+    email = prefs.getString('email') ?? email;
+    isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
   }
 
   Future<void> login({required String email, required String password}) async {
@@ -707,6 +710,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    ws.connect();
     _checkLocation();
   }
 
