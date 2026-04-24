@@ -767,6 +767,7 @@ Future<void> main() async {
             final driverId = (msg['driverId'] ?? '').toString();
             if (driverId.isEmpty) return;
             socketDriverId[socket] = driverId;
+            driverSockets.add(socket); // Treat registration as coming online
             final current =
                 drivers[driverId] ?? <String, dynamic>{'driverId': driverId};
             final name = (msg['name'] ?? '').toString().trim();
@@ -789,9 +790,21 @@ Future<void> main() async {
               current['vehicleNumber'] = vehicleNumber;
             if (licenseNumber.isNotEmpty)
               current['licenseNumber'] = licenseNumber;
-            current['online'] = current['online'] ?? false;
+            current['online'] = true; // Mark as online on registration
             current['lastSeen'] = DateTime.now().toIso8601String();
             drivers[driverId] = current;
+            
+            socket.add(jsonEncode({'type': 'register_ack', 'driverId': driverId}));
+            
+            // Push active 'finding' rides to the newly connected driver
+            int pushedCount = 0;
+            for (final r in rides.values) {
+              if (r['status'] == 'finding') {
+                socket.add(jsonEncode({'type': 'ride_request', ...r}));
+                pushedCount++;
+              }
+            }
+            print("Driver $driverId registered/online. Pushed $pushedCount active rides.");
             return;
 
           case 'driver_online':
