@@ -71,6 +71,17 @@ Future<void> main() async {
   final rides = ridesDb; // Use persistent DB for rides too
   final socketDriverId = <WebSocket, String>{};
 
+  // Debug: List files in /web
+  final webDir = Directory('web');
+  if (await webDir.exists()) {
+    print("Files in /web:");
+    await for (final entity in webDir.list(recursive: true)) {
+      print("  ${entity.path}");
+    }
+  } else {
+    print("WARNING: /web directory NOT FOUND");
+  }
+
   const adminHtml = '''
 <!doctype html>
 <html>
@@ -622,6 +633,30 @@ Future<void> main() async {
       continue;
     }
 
+    if (req.uri.path.startsWith('/driver')) {
+      print("Serving driver app for: ${req.uri.path}");
+      var subPath = req.uri.path.replaceFirst('/driver', '');
+      if (subPath == '' || subPath == '/') subPath = '/index.html';
+      if (subPath.startsWith('/')) subPath = subPath.substring(1);
+      
+      final file = File('web/$subPath');
+      if (await file.exists()) {
+        final contentType = subPath.endsWith('.html') ? 'text/html' : 
+                          subPath.endsWith('.js') ? 'application/javascript' :
+                          subPath.endsWith('.css') ? 'text/css' :
+                          subPath.endsWith('.png') ? 'image/png' : 
+                          subPath.endsWith('.wasm') ? 'application/wasm' : 'text/plain';
+        req.response.headers.contentType = ContentType.parse(contentType);
+        await file.openRead().pipe(req.response);
+      } else {
+        print("  File not found: ${file.path}");
+        req.response.statusCode = HttpStatus.notFound;
+        req.response.write('Not found: $subPath');
+        await req.response.close();
+      }
+      continue;
+    }
+
     if (req.uri.path == '/api/admin/state') {
       final usersList = users.values.toList()
         ..sort(
@@ -720,24 +755,7 @@ Future<void> main() async {
       return;
     }
 
-    if (req.uri.path.startsWith('/driver')) {
-      var path = req.uri.path.replaceFirst('/driver', '');
-      if (path == '' || path == '/') path = '/index.html';
-      final file = File('web$path');
-      if (await file.exists()) {
-        final contentType = path.endsWith('.html') ? 'text/html' : 
-                          path.endsWith('.js') ? 'application/javascript' :
-                          path.endsWith('.css') ? 'text/css' :
-                          path.endsWith('.png') ? 'image/png' : 'text/plain';
-        req.response.headers.contentType = ContentType.parse(contentType);
-        await file.openRead().pipe(req.response);
-      } else {
-        req.response.statusCode = HttpStatus.notFound;
-        req.response.write('Not found: $path');
-        await req.response.close();
-      }
-      continue;
-    }
+
 
     if (req.uri.path != '/ws') {
       req.response.statusCode = HttpStatus.notFound;
