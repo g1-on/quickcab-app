@@ -800,7 +800,7 @@ Future<void> main() async {
 
     if (req.uri.path != '/ws') {
       req.response.statusCode = HttpStatus.notFound;
-      req.response.write('Not found');
+      req.response.write('Not found (Final Fallback)');
       await req.response.close();
       continue;
     }
