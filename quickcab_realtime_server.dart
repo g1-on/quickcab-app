@@ -657,6 +657,30 @@ Future<void> main() async {
       continue;
     }
 
+    if (req.uri.path.startsWith('/user')) {
+      print("Serving user app for: ${req.uri.path}");
+      var subPath = req.uri.path.replaceFirst('/user', '');
+      if (subPath == '' || subPath == '/') subPath = '/index.html';
+      if (subPath.startsWith('/')) subPath = subPath.substring(1);
+      
+      final file = File('web_user/$subPath');
+      if (await file.exists()) {
+        final contentType = subPath.endsWith('.html') ? 'text/html' : 
+                          subPath.endsWith('.js') ? 'application/javascript' :
+                          subPath.endsWith('.css') ? 'text/css' :
+                          subPath.endsWith('.png') ? 'image/png' : 
+                          subPath.endsWith('.wasm') ? 'application/wasm' : 'text/plain';
+        req.response.headers.contentType = ContentType.parse(contentType);
+        await file.openRead().pipe(req.response);
+      } else {
+        print("  File not found: ${file.path}");
+        req.response.statusCode = HttpStatus.notFound;
+        req.response.write('Not found: $subPath');
+        await req.response.close();
+      }
+      continue;
+    }
+
     if (req.uri.path == '/api/admin/state') {
       final usersList = users.values.toList()
         ..sort(

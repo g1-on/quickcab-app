@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -9,6 +10,7 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
   Future<void> init() async {
+    if (kIsWeb) return;
     const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/launcher_icon');
     const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings(
       requestAlertPermission: false,
@@ -26,6 +28,7 @@ class NotificationService {
   }
 
   Future<void> requestPermissions() async {
+    if (kIsWeb) return;
     await Permission.notification.request();
     final locationStatus = await Permission.locationWhenInUse.request();
     // Request iOS permissions
@@ -42,6 +45,10 @@ class NotificationService {
   }
 
   Future<void> showNotification({required String title, required String body}) async {
+    if (kIsWeb) {
+      debugPrint("Web Notification: $title - $body");
+      return;
+    }
     const AndroidNotificationDetails androidPlatformChannelSpecifics = AndroidNotificationDetails(
       'quickcab_channel_id',
       'QuickCab Notifications',
@@ -62,7 +69,7 @@ class NotificationService {
     );
     
     await flutterLocalNotificationsPlugin.show(
-      id: DateTime.now().millisecond,
+      id: DateTime.now().millisecond.remainder(100000),
       title: title,
       body: body,
       notificationDetails: platformChannelSpecifics,

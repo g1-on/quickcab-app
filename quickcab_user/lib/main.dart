@@ -23,10 +23,13 @@ String get wsUrl {
   if (envUrl.isNotEmpty) return envUrl;
 
   const isLive = bool.fromEnvironment('LIVE', defaultValue: false);
-  if (isLive) return 'wss://quickcab-matrix.onrender.com/ws';
+  if (isLive || kReleaseMode) return 'wss://quickcab-matrix.onrender.com/ws';
 
-  if (kIsWeb) return 'ws://localhost:8081/ws';
-  if (!kIsWeb && Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
+  if (kIsWeb) {
+    return 'wss://quickcab-matrix.onrender.com/ws';
+  }
+  
+  if (Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
   return 'ws://localhost:8081/ws';
 }
 
