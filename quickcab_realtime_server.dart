@@ -554,14 +554,21 @@ Future<void> main() async {
 
   Future<void> broadcastToAll(Map<String, dynamic> msg) async {
     final text = jsonEncode(msg);
+    print("Broadcasting ${msg['type']} to ${driverSockets.length} drivers and ${rooms.length} rooms");
+    
     // Broadcast to drivers
+    int driverSuccess = 0;
     for (final s in driverSockets.toList()) {
       try {
         s.add(text);
-      } catch (_) {
+        driverSuccess++;
+      } catch (e) {
+        print("  Error sending to driver socket: $e");
         driverSockets.remove(s);
       }
     }
+    if (driverSockets.isNotEmpty) print("  Sent to $driverSuccess/${driverSockets.length} drivers");
+
     // Broadcast to everyone in rooms
     for (final room in rooms.values) {
       for (final s in room.toList()) {

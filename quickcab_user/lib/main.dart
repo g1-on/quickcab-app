@@ -1839,20 +1839,7 @@ class _BargainScreenState extends State<BargainScreen> {
       }
     });
 
-    // Mock an offer if none received after some time (legacy demo logic)
-    Future.delayed(const Duration(seconds: 4), () {
-      if (mounted && driverOffers.isEmpty) {
-        ws.send({
-          'type': 'driver_offer',
-          'rideId': widget.rideId,
-          'price': widget.initialPrice + 150,
-          'driverId': 'D_MOCK_1',
-          'driverName': 'Ravi (Mock)',
-          'vehicleModel': 'Swift Dzire',
-          'vehicleNumber': 'DL 1C AB 1234',
-        });
-      }
-    });
+    // Legacy mock offer logic removed to allow real driver interaction.
   }
 
   @override
