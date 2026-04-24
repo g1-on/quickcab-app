@@ -771,6 +771,17 @@ class _DriverHomeState extends State<DriverHome> {
     _checkLocation();
     _determinePosition();
     _sub = ws.stream.listen((msg) {
+      if (mounted) {
+        // Visual feedback that server is talking to us
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Server Message: ${msg['type']}"),
+            duration: const Duration(seconds: 1),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      
       if (msg['type'] == 'ride_request') {
         if (mounted) {
           setState(() {
@@ -1011,10 +1022,10 @@ class _DriverHomeState extends State<DriverHome> {
                   ? Column(
                       mainAxisSize: MainAxisSize.min,
                       children: const [
-                        SizedBox(height: 20),
+                        const SizedBox(height: 20),
                         CircularProgressIndicator(color: Colors.black),
-                        SizedBox(height: 20),
-                        Text(
+                        const SizedBox(height: 20),
+                        const Text(
                           "Looking for rides near you...",
                           style: TextStyle(
                             fontSize: 16,
@@ -1022,7 +1033,12 @@ class _DriverHomeState extends State<DriverHome> {
                             color: Colors.black54,
                           ),
                         ),
-                        SizedBox(height: 40),
+                        const SizedBox(height: 10),
+                        const Text(
+                          "v1.0.5 - Connection Active",
+                          style: TextStyle(fontSize: 10, color: Colors.black26),
+                        ),
+                        const SizedBox(height: 20),
                       ],
                     )
                   : Column(

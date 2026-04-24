@@ -2179,6 +2179,11 @@ class _BargainScreenState extends State<BargainScreen> {
                                 ],
                               ),
                               const SizedBox(height: 12),
+                        const Text(
+                          "v1.0.5",
+                          style: TextStyle(fontSize: 10, color: Colors.black26),
+                        ),
+                        const SizedBox(height: 10),
                               Text(
                                 "${offer['vehicleModel']} • ${offer['vehicleNumber']}",
                                 style: TextStyle(
