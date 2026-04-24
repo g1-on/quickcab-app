@@ -34,24 +34,30 @@ Future<void> main() async {
   final rooms = <String, Set<WebSocket>>{};
   final driverSockets = <WebSocket>{};
   final acceptState = <String, Map<String, int>>{};
-  
+
   // Persistent Storage
   final userFile = File('users_db.json');
   final driverFile = File('drivers_db.json');
   final ridesFile = File('rides_db.json');
-  
+
   Map<String, dynamic> userDb = {};
   Map<String, dynamic> driverDb = {};
   Map<String, dynamic> ridesDb = {};
 
   if (await userFile.exists()) {
-    try { userDb = jsonDecode(await userFile.readAsString()); } catch(_) {}
+    try {
+      userDb = jsonDecode(await userFile.readAsString());
+    } catch (_) {}
   }
   if (await driverFile.exists()) {
-    try { driverDb = jsonDecode(await driverFile.readAsString()); } catch(_) {}
+    try {
+      driverDb = jsonDecode(await driverFile.readAsString());
+    } catch (_) {}
   }
   if (await ridesFile.exists()) {
-    try { ridesDb = jsonDecode(await ridesFile.readAsString()); } catch(_) {}
+    try {
+      ridesDb = jsonDecode(await ridesFile.readAsString());
+    } catch (_) {}
   }
 
   void saveDbs() async {
@@ -539,17 +545,27 @@ Future<void> main() async {
     final text = jsonEncode(msg);
     // Broadcast to drivers
     for (final s in driverSockets.toList()) {
-      try { s.add(text); } catch (_) { driverSockets.remove(s); }
+      try {
+        s.add(text);
+      } catch (_) {
+        driverSockets.remove(s);
+      }
     }
     // Broadcast to everyone in rooms
     for (final room in rooms.values) {
       for (final s in room.toList()) {
-        try { s.add(text); } catch (_) {}
+        try {
+          s.add(text);
+        } catch (_) {}
       }
     }
   }
 
-  Future<void> bookRideIfMatched(String rideId, Map<String, int> state, {String? targetDriverId}) async {
+  Future<void> bookRideIfMatched(
+    String rideId,
+    Map<String, int> state, {
+    String? targetDriverId,
+  }) async {
     final userPrice = state['user'];
     if (userPrice == null) return;
 
@@ -569,7 +585,9 @@ Future<void> main() async {
       }
     }
 
-    if (winnerDriverId == null || winningPrice == null || userPrice != winningPrice) {
+    if (winnerDriverId == null ||
+        winningPrice == null ||
+        userPrice != winningPrice) {
       return;
     }
 
@@ -606,24 +624,41 @@ Future<void> main() async {
 
     if (req.uri.path == '/api/admin/state') {
       final usersList = users.values.toList()
-        ..sort((a, b) => (b['lastSeen'] ?? '').toString().compareTo((a['lastSeen'] ?? '').toString()));
+        ..sort(
+          (a, b) => (b['lastSeen'] ?? '').toString().compareTo(
+            (a['lastSeen'] ?? '').toString(),
+          ),
+        );
       final driversList = drivers.values.toList()
-        ..sort((a, b) => (b['lastSeen'] ?? '').toString().compareTo((a['lastSeen'] ?? '').toString()));
+        ..sort(
+          (a, b) => (b['lastSeen'] ?? '').toString().compareTo(
+            (a['lastSeen'] ?? '').toString(),
+          ),
+        );
       final ridesList = rides.values.toList()
-        ..sort((a, b) => (b['updatedAt'] ?? '').toString().compareTo((a['updatedAt'] ?? '').toString()));
+        ..sort(
+          (a, b) => (b['updatedAt'] ?? '').toString().compareTo(
+            (a['updatedAt'] ?? '').toString(),
+          ),
+        );
       req.response.headers.contentType = ContentType.json;
-      req.response.write(jsonEncode({
-        'users': usersList,
-        'drivers': driversList,
-        'rides': ridesList,
-      }));
+      req.response.write(
+        jsonEncode({
+          'users': usersList,
+          'drivers': driversList,
+          'rides': ridesList,
+        }),
+      );
       await req.response.close();
       continue;
     }
 
     // --- CORS HEADERS ---
     req.response.headers.add('Access-Control-Allow-Origin', '*');
-    req.response.headers.add('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+    req.response.headers.add(
+      'Access-Control-Allow-Methods',
+      'POST, GET, OPTIONS',
+    );
     req.response.headers.add('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method == 'OPTIONS') {
@@ -635,21 +670,32 @@ Future<void> main() async {
     if (req.uri.path == '/api/signup' && req.method == 'POST') {
       final body = await utf8.decoder.bind(req).join();
       final data = jsonDecode(body);
-      final role = data['role']; 
+      final role = data['role'];
       final email = data['email'];
       final password = data['password'];
       final name = data['name'];
       final db = role == 'user' ? userDb : driverDb;
       if (db.containsKey(email)) {
-        req.response..statusCode = 400..write(jsonEncode({'error': 'Email already exists'}))..close();
+        req.response
+          ..statusCode = 400
+          ..write(jsonEncode({'error': 'Email already exists'}))
+          ..close();
         return;
       }
       db[email] = {
-        'id': role == 'user' ? "U_${DateTime.now().millisecondsSinceEpoch}" : "D_${DateTime.now().millisecondsSinceEpoch}",
-        'name': name, 'email': email, 'password': password, 'role': role,
+        'id': role == 'user'
+            ? "U_${DateTime.now().millisecondsSinceEpoch}"
+            : "D_${DateTime.now().millisecondsSinceEpoch}",
+        'name': name,
+        'email': email,
+        'password': password,
+        'role': role,
       };
       saveDbs();
-      req.response..statusCode = 200..write(jsonEncode(db[email]))..close();
+      req.response
+        ..statusCode = 200
+        ..write(jsonEncode(db[email]))
+        ..close();
       return;
     }
 
@@ -661,9 +707,15 @@ Future<void> main() async {
       final role = data['role'];
       final db = role == 'user' ? userDb : driverDb;
       if (db.containsKey(email) && db[email]['password'] == password) {
-        req.response..statusCode = 200..write(jsonEncode(db[email]))..close();
+        req.response
+          ..statusCode = 200
+          ..write(jsonEncode(db[email]))
+          ..close();
       } else {
-        req.response..statusCode = 401..write(jsonEncode({'error': 'Invalid credentials'}))..close();
+        req.response
+          ..statusCode = 401
+          ..write(jsonEncode({'error': 'Invalid credentials'}))
+          ..close();
       }
       return;
     }
@@ -693,7 +745,8 @@ Future<void> main() async {
           case 'register_user':
             final userId = (msg['userId'] ?? '').toString();
             if (userId.isEmpty) return;
-            final current = users[userId] ?? <String, dynamic>{'userId': userId};
+            final current =
+                users[userId] ?? <String, dynamic>{'userId': userId};
             final name = (msg['name'] ?? '').toString().trim();
             final email = (msg['email'] ?? '').toString().trim();
             final phone = (msg['phone'] ?? '').toString().trim();
@@ -714,21 +767,28 @@ Future<void> main() async {
             final driverId = (msg['driverId'] ?? '').toString();
             if (driverId.isEmpty) return;
             socketDriverId[socket] = driverId;
-            final current = drivers[driverId] ?? <String, dynamic>{'driverId': driverId};
+            final current =
+                drivers[driverId] ?? <String, dynamic>{'driverId': driverId};
             final name = (msg['name'] ?? '').toString().trim();
             final email = (msg['email'] ?? '').toString().trim();
             final phone = (msg['phone'] ?? '').toString().trim();
             final city = (msg['city'] ?? '').toString().trim();
             final vehicleModel = (msg['vehicleModel'] ?? '').toString().trim();
-            final vehicleNumber = (msg['vehicleNumber'] ?? '').toString().trim();
-            final licenseNumber = (msg['licenseNumber'] ?? '').toString().trim();
+            final vehicleNumber = (msg['vehicleNumber'] ?? '')
+                .toString()
+                .trim();
+            final licenseNumber = (msg['licenseNumber'] ?? '')
+                .toString()
+                .trim();
             if (name.isNotEmpty) current['name'] = name;
             if (email.isNotEmpty) current['email'] = email;
             if (phone.isNotEmpty) current['phone'] = phone;
             if (city.isNotEmpty) current['city'] = city;
             if (vehicleModel.isNotEmpty) current['vehicleModel'] = vehicleModel;
-            if (vehicleNumber.isNotEmpty) current['vehicleNumber'] = vehicleNumber;
-            if (licenseNumber.isNotEmpty) current['licenseNumber'] = licenseNumber;
+            if (vehicleNumber.isNotEmpty)
+              current['vehicleNumber'] = vehicleNumber;
+            if (licenseNumber.isNotEmpty)
+              current['licenseNumber'] = licenseNumber;
             current['online'] = current['online'] ?? false;
             current['lastSeen'] = DateTime.now().toIso8601String();
             drivers[driverId] = current;
@@ -736,22 +796,33 @@ Future<void> main() async {
 
           case 'driver_online':
             driverSockets.add(socket);
-            final driverId = (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
+            final driverId = (msg['driverId'] ?? socketDriverId[socket] ?? '')
+                .toString();
             if (driverId.isNotEmpty) {
               socketDriverId[socket] = driverId;
-              final current = drivers[driverId] ?? <String, dynamic>{'driverId': driverId};
+              final current =
+                  drivers[driverId] ?? <String, dynamic>{'driverId': driverId};
               current['online'] = true;
               current['lastSeen'] = DateTime.now().toIso8601String();
               drivers[driverId] = current;
             }
             socket.add(jsonEncode({'type': 'driver_online_ack'}));
+
+            // Push active 'finding' rides to the newly connected driver
+            for (final r in rides.values) {
+              if (r['status'] == 'finding') {
+                socket.add(jsonEncode({'type': 'ride_request', ...r}));
+              }
+            }
             return;
 
           case 'driver_offline':
             driverSockets.remove(socket);
-            final driverId = (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
+            final driverId = (msg['driverId'] ?? socketDriverId[socket] ?? '')
+                .toString();
             if (driverId.isNotEmpty) {
-              final current = drivers[driverId] ?? <String, dynamic>{'driverId': driverId};
+              final current =
+                  drivers[driverId] ?? <String, dynamic>{'driverId': driverId};
               current['online'] = false;
               current['lastSeen'] = DateTime.now().toIso8601String();
               drivers[driverId] = current;
@@ -767,8 +838,10 @@ Future<void> main() async {
             msg['createdAt'] = DateTime.now().toIso8601String();
             msg['updatedAt'] = msg['createdAt'];
             msg['logs'] = [];
-            
-            final userOffer = msg['userOffer'] is num ? (msg['userOffer'] as num).toInt() : null;
+
+            final userOffer = msg['userOffer'] is num
+                ? (msg['userOffer'] as num).toInt()
+                : null;
             if (userOffer != null) {
               (msg['logs'] as List).add({
                 'ts': DateTime.now().toIso8601String(),
@@ -778,8 +851,8 @@ Future<void> main() async {
             }
 
             rooms.putIfAbsent(rideId, () => <WebSocket>{}).add(socket);
-            acceptState[rideId] = { if (userOffer != null) 'user': userOffer };
-            
+            acceptState[rideId] = {if (userOffer != null) 'user': userOffer};
+
             rides[rideId] = msg;
             await broadcastToAll({'type': 'ride_request', ...msg});
             return;
@@ -803,18 +876,23 @@ Future<void> main() async {
             if (rideId is! String || rideId.isEmpty) return;
             rooms.putIfAbsent(rideId, () => <WebSocket>{}).add(socket);
             if (role == 'driver') {
-              final driverId = (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
+              final driverId = (msg['driverId'] ?? socketDriverId[socket] ?? '')
+                  .toString();
               if (driverId.isNotEmpty && rides.containsKey(rideId)) {
                 rides[rideId]!['driverId'] = driverId;
                 rides[rideId]!['status'] = 'driver_joined';
                 rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
               }
             }
-            socket.add(jsonEncode({
-              'type': 'joined', 
-              'rideId': rideId,
-              'history': rides.containsKey(rideId) ? rides[rideId]!['logs'] : [],
-            }));
+            socket.add(
+              jsonEncode({
+                'type': 'joined',
+                'rideId': rideId,
+                'history': rides.containsKey(rideId)
+                    ? rides[rideId]!['logs']
+                    : [],
+              }),
+            );
             saveDbs();
             return;
 
@@ -823,20 +901,20 @@ Future<void> main() async {
             final text = msg['text'];
             final role = msg['role'];
             if (rideId is! String || text is! String || role is! String) return;
-            
+
             final logEntry = {
               'ts': DateTime.now().toIso8601String(),
               'from': role,
               'text': text,
               'userName': msg['userName'],
             };
-            
+
             if (rides.containsKey(rideId)) {
               rides[rideId]!['updatedAt'] = logEntry['ts'];
               (rides[rideId]!['logs'] as List?)?.add(logEntry);
               saveDbs();
             }
-            
+
             await broadcastToRoom(rideId, {
               'type': 'chat_message',
               'rideId': rideId,
@@ -852,14 +930,18 @@ Future<void> main() async {
             final rideId = msg['rideId'];
             final price = msg['price'];
             if (rideId is! String || price is! num) return;
-            final state = acceptState.putIfAbsent(rideId, () => <String, int>{});
-            
+            final state = acceptState.putIfAbsent(
+              rideId,
+              () => <String, int>{},
+            );
+
             String key = 'user';
             if (type == 'driver_offer') {
-              key = (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
+              key = (msg['driverId'] ?? socketDriverId[socket] ?? '')
+                  .toString();
               if (key.isEmpty) return;
             }
-            
+
             state[key] = price.toInt();
             await broadcastToRoom(rideId, {
               'type': type,
@@ -870,7 +952,7 @@ Future<void> main() async {
                 'driverName': msg['driverName'],
                 'vehicleModel': msg['vehicleModel'],
                 'vehicleNumber': msg['vehicleNumber'],
-              }
+              },
             });
             if (rides.containsKey(rideId)) {
               if (type == 'user_offer') {
@@ -880,7 +962,7 @@ Future<void> main() async {
               }
               rides[rideId]!['status'] = 'bargaining';
               rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
-              
+
               final logEntry = {
                 'ts': rides[rideId]!['updatedAt'],
                 'from': type == 'user_offer' ? 'user' : 'driver',
@@ -889,7 +971,11 @@ Future<void> main() async {
               };
               (rides[rideId]!['logs'] as List?)?.add(logEntry);
             }
-            await bookRideIfMatched(rideId, state, targetDriverId: type == 'driver_offer' ? key : null);
+            await bookRideIfMatched(
+              rideId,
+              state,
+              targetDriverId: type == 'driver_offer' ? key : null,
+            );
             return;
 
           case 'accept':
@@ -898,15 +984,23 @@ Future<void> main() async {
             final price = msg['price'];
             if (rideId is! String || role is! String || price is! num) return;
 
-            final state = acceptState.putIfAbsent(rideId, () => <String, int>{});
+            final state = acceptState.putIfAbsent(
+              rideId,
+              () => <String, int>{},
+            );
             String key = role;
             if (role == 'driver') {
-              key = (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
+              key = (msg['driverId'] ?? socketDriverId[socket] ?? '')
+                  .toString();
             } else if (role == 'user' && msg['driverId'] != null) {
               // User accepts a specific driver's offer
               key = 'user';
               state['user'] = price.toInt();
-              await bookRideIfMatched(rideId, state, targetDriverId: msg['driverId']);
+              await bookRideIfMatched(
+                rideId,
+                state,
+                targetDriverId: msg['driverId'],
+              );
               return;
             }
 
@@ -924,7 +1018,7 @@ Future<void> main() async {
             });
 
             if (rides.containsKey(rideId)) {
-               final logEntry = {
+              final logEntry = {
                 'ts': DateTime.now().toIso8601String(),
                 'from': role,
                 'text': 'ACCEPTED: ₹${price.toInt()}',
@@ -932,20 +1026,28 @@ Future<void> main() async {
               (rides[rideId]!['logs'] as List?)?.add(logEntry);
             }
 
-            await bookRideIfMatched(rideId, state, targetDriverId: role == 'driver' ? key : null);
+            await bookRideIfMatched(
+              rideId,
+              state,
+              targetDriverId: role == 'driver' ? key : null,
+            );
             return;
 
           case 'set_ride_otp':
             final rideId = msg['rideId'];
             final otp = (msg['otp'] ?? '').toString();
             if (rideId is! String || rideId.isEmpty || otp.isEmpty) return;
-            final ride = rides.putIfAbsent(rideId, () => <String, dynamic>{'rideId': rideId});
+            final ride = rides.putIfAbsent(
+              rideId,
+              () => <String, dynamic>{'rideId': rideId},
+            );
             ride['startOtp'] = otp;
             ride['status'] = 'otp_pending';
             ride['pickup'] = (msg['pickup'] ?? ride['pickup'] ?? '').toString();
             ride['drop'] = (msg['drop'] ?? ride['drop'] ?? '').toString();
             ride['userId'] = (msg['userId'] ?? ride['userId'] ?? '').toString();
-            ride['userPhone'] = (msg['userPhone'] ?? ride['userPhone'] ?? '').toString();
+            ride['userPhone'] = (msg['userPhone'] ?? ride['userPhone'] ?? '')
+                .toString();
             if (msg['price'] is num) {
               ride['finalPrice'] = (msg['price'] as num).toInt();
             }
@@ -963,11 +1065,11 @@ Future<void> main() async {
             final ride = rides[rideId];
             if (ride == null) return;
             if ((ride['startOtp'] ?? '').toString() != otp) {
-               await broadcastToRoom(rideId, {
-                 'type': 'otp_invalid',
-                 'rideId': rideId,
-               });
-               return;
+              await broadcastToRoom(rideId, {
+                'type': 'otp_invalid',
+                'rideId': rideId,
+              });
+              return;
             }
             ride['rideStarted'] = true;
             ride['status'] = 'in_progress';
@@ -986,13 +1088,18 @@ Future<void> main() async {
             final rideId = msg['rideId'];
             final lat = msg['lat'];
             final lng = msg['lng'];
-            if (rideId is! String || rideId.isEmpty || lat is! num || lng is! num) return;
+            if (rideId is! String ||
+                rideId.isEmpty ||
+                lat is! num ||
+                lng is! num)
+              return;
             await broadcastToRoom(rideId, {
               'type': 'driver_location',
               'rideId': rideId,
               'lat': lat.toDouble(),
               'lng': lng.toDouble(),
-              if (msg['progress'] is num) 'progress': (msg['progress'] as num).toDouble(),
+              if (msg['progress'] is num)
+                'progress': (msg['progress'] as num).toDouble(),
             });
             if (rides.containsKey(rideId)) {
               rides[rideId]!['status'] = (rides[rideId]!['rideStarted'] == true)
@@ -1003,7 +1110,8 @@ Future<void> main() async {
                 'lng': lng.toDouble(),
               };
               if (msg['progress'] is num) {
-                rides[rideId]!['progress'] = (msg['progress'] as num).toDouble();
+                rides[rideId]!['progress'] = (msg['progress'] as num)
+                    .toDouble();
               }
               rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
             }
@@ -1021,7 +1129,8 @@ Future<void> main() async {
             });
             if (rides.containsKey(rideId)) {
               rides[rideId]!['status'] = 'completed';
-              if (finalPrice is num) rides[rideId]!['finalPrice'] = finalPrice.toInt();
+              if (finalPrice is num)
+                rides[rideId]!['finalPrice'] = finalPrice.toInt();
               rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
             }
             return;
@@ -1032,19 +1141,21 @@ Future<void> main() async {
             final role = msg['role'];
             print("Chat from $role in room $rideId: $text");
             if (rideId is! String || text is! String || role is! String) return;
-            
+
             await broadcastToRoom(rideId, {
               'type': 'chat_message',
               'rideId': rideId,
               'role': role,
               'text': text,
-              'driverId': role == 'driver' ? (msg['driverId'] ?? socketDriverId[socket]) : null,
+              'driverId': role == 'driver'
+                  ? (msg['driverId'] ?? socketDriverId[socket])
+                  : null,
               'driverName': role == 'driver' ? msg['driverName'] : null,
               'userName': role == 'user' ? (msg['userName']) : null,
             });
-            
+
             if (rides.containsKey(rideId)) {
-               final logEntry = {
+              final logEntry = {
                 'ts': DateTime.now().toIso8601String(),
                 'from': role,
                 'text': text,
