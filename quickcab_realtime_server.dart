@@ -626,6 +626,8 @@ Future<void> main() async {
   }
 
   await for (final req in server) {
+    print("REQUEST: ${req.method} ${req.uri.path}");
+
     if (req.uri.path == '/admin') {
       req.response.headers.contentType = ContentType.html;
       req.response.write(adminHtml);
@@ -634,12 +636,12 @@ Future<void> main() async {
     }
 
     if (req.uri.path.startsWith('/driver')) {
-      print("Serving driver app for: ${req.uri.path}");
+      print("  [DRIVER APP] Attempting to serve: ${req.uri.path}");
       var subPath = req.uri.path.replaceFirst('/driver', '');
       if (subPath == '' || subPath == '/') subPath = '/index.html';
       if (subPath.startsWith('/')) subPath = subPath.substring(1);
       
-      final file = File('web/$subPath');
+      final file = File('/web/$subPath'); // Use absolute path in container
       if (await file.exists()) {
         final contentType = subPath.endsWith('.html') ? 'text/html' : 
                           subPath.endsWith('.js') ? 'application/javascript' :
@@ -649,21 +651,28 @@ Future<void> main() async {
         req.response.headers.contentType = ContentType.parse(contentType);
         await file.openRead().pipe(req.response);
       } else {
-        print("  File not found: ${file.path}");
-        req.response.statusCode = HttpStatus.notFound;
-        req.response.write('Not found: $subPath');
-        await req.response.close();
+        print("    [ERROR] File not found: ${file.path}");
+        // Fallback to relative path if absolute fails
+        final relFile = File('web/$subPath');
+        if (await relFile.exists()) {
+           req.response.headers.contentType = ContentType.parse('text/html'); // guess
+           await relFile.openRead().pipe(req.response);
+        } else {
+           req.response.statusCode = HttpStatus.notFound;
+           req.response.write('Not found: $subPath (tried ${file.path} and ${relFile.path})');
+           await req.response.close();
+        }
       }
       continue;
     }
 
     if (req.uri.path.startsWith('/user')) {
-      print("Serving user app for: ${req.uri.path}");
+      print("  [USER APP] Attempting to serve: ${req.uri.path}");
       var subPath = req.uri.path.replaceFirst('/user', '');
       if (subPath == '' || subPath == '/') subPath = '/index.html';
       if (subPath.startsWith('/')) subPath = subPath.substring(1);
       
-      final file = File('web_user/$subPath');
+      final file = File('/web_user/$subPath'); // Use absolute path in container
       if (await file.exists()) {
         final contentType = subPath.endsWith('.html') ? 'text/html' : 
                           subPath.endsWith('.js') ? 'application/javascript' :
@@ -673,13 +682,21 @@ Future<void> main() async {
         req.response.headers.contentType = ContentType.parse(contentType);
         await file.openRead().pipe(req.response);
       } else {
-        print("  File not found: ${file.path}");
-        req.response.statusCode = HttpStatus.notFound;
-        req.response.write('Not found: $subPath');
-        await req.response.close();
+        print("    [ERROR] File not found: ${file.path}");
+        final relFile = File('web_user/$subPath');
+        if (await relFile.exists()) {
+           req.response.headers.contentType = ContentType.parse('text/html');
+           await relFile.openRead().pipe(req.response);
+        } else {
+           req.response.statusCode = HttpStatus.notFound;
+           req.response.write('Not found: $subPath (tried ${file.path} and ${relFile.path})');
+           await req.response.close();
+        }
       }
       continue;
     }
+
+
 
     if (req.uri.path == '/api/admin/state') {
       final usersList = users.values.toList()
