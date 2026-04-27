@@ -55,6 +55,9 @@ class WebSocketService {
 
   Timer? _reconnectTimer;
 
+  final List<Map<String, dynamic>> _queue = [];
+  bool _isConnected = false;
+
   void connect() {
     if (_channel != null) return;
     _doConnect();
@@ -65,6 +68,11 @@ class WebSocketService {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       _channel!.stream.listen(
         (data) {
+          if (!_isConnected) {
+            debugPrint("WS Connected!");
+            _isConnected = true;
+            _flushQueue();
+          }
           try {
             final msg = jsonDecode(data);
             debugPrint("WS IN: $msg");
@@ -92,6 +100,7 @@ class WebSocketService {
 
   void _handleDisconnect() {
     _channel = null;
+    _isConnected = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 3), () {
       debugPrint("WS Attempting Reconnect...");
@@ -99,8 +108,14 @@ class WebSocketService {
     });
   }
 
+  void _flushQueue() {
+    while (_queue.isNotEmpty && _isConnected) {
+      final data = _queue.removeAt(0);
+      send(data);
+    }
+  }
+
   void syncUserProfile() {
-    // Register the user to show up in Admin Panel
     send({
       'type': 'register_user',
       'userId': userId,
@@ -112,9 +127,12 @@ class WebSocketService {
   }
 
   void send(Map<String, dynamic> data) {
-    if (_channel != null) {
+    if (_isConnected && _channel != null) {
       debugPrint("WS OUT: $data");
       _channel!.sink.add(jsonEncode(data));
+    } else {
+      debugPrint("WS QUEUE: $data");
+      _queue.add(data);
     }
   }
 }
@@ -1126,7 +1144,7 @@ class ProfileScreen extends StatelessWidget {
             context,
             Icons.payments_rounded,
             "Payment Methods",
-            "Uber Cash, UPI",
+            "QuickCab Cash, UPI",
             onTap: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -1221,7 +1239,7 @@ class _BookingSheetState extends State<BookingSheet> {
   final dropController = TextEditingController(text: "Agra");
   final priceController = TextEditingController();
 
-  String vehicleType = "Uber Go";
+  String vehicleType = "QuickCab Go";
   String paymentMethod = "Cash";
   String profile = "For Me";
 
@@ -1229,21 +1247,21 @@ class _BookingSheetState extends State<BookingSheet> {
     // Basic route pricing matrix (One-way)
     Map<String, Map<String, int>> pricing = {
       "Delhi-Agra": {
-        "Uber Go": 2200,
-        "Uber Premier": 2800,
-        "Uber XL": 3500,
+        "QuickCab Go": 2200,
+        "QuickCab Premier": 2800,
+        "QuickCab XL": 3500,
         "Intercity": 4500,
       },
       "Delhi-Jaipur": {
-        "Uber Go": 2800,
-        "Uber Premier": 3500,
-        "Uber XL": 4500,
+        "QuickCab Go": 2800,
+        "QuickCab Premier": 3500,
+        "QuickCab XL": 4500,
         "Intercity": 5500,
       },
       "Agra-Jaipur": {
-        "Uber Go": 2500,
-        "Uber Premier": 3200,
-        "Uber XL": 4200,
+        "QuickCab Go": 2500,
+        "QuickCab Premier": 3200,
+        "QuickCab XL": 4200,
         "Intercity": 5000,
       },
     };
@@ -1257,9 +1275,9 @@ class _BookingSheetState extends State<BookingSheet> {
         pricing[route] ??
         pricing[reverseRoute] ??
         {
-          "Uber Go": 2000,
-          "Uber Premier": 2500,
-          "Uber XL": 3200,
+          "QuickCab Go": 2000,
+          "QuickCab Premier": 2500,
+          "QuickCab XL": 3200,
           "Intercity": 4000,
         };
     return base[vehicleType] ?? 2000;
@@ -1372,19 +1390,19 @@ class _BookingSheetState extends State<BookingSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 24),
               children: [
                 _buildVehicleItem(
-                  "Uber Go",
+                  "QuickCab Go",
                   "Fast & Affordable",
                   2200,
                   Icons.directions_car_filled_rounded,
                 ),
                 _buildVehicleItem(
-                  "Uber Premier",
+                  "QuickCab Premier",
                   "High-rated drivers",
                   2800,
                   Icons.stars_rounded,
                 ),
                 _buildVehicleItem(
-                  "Uber XL",
+                  "QuickCab XL",
                   "Spacious 6-seater",
                   3500,
                   Icons.airport_shuttle_rounded,
@@ -1870,7 +1888,12 @@ class _BargainScreenState extends State<BargainScreen> {
 
     int? price = int.tryParse(text);
     if (price != null && price > 0) {
-      ws.send({'type': 'user_offer', 'rideId': widget.rideId, 'price': price});
+      ws.send({
+        'type': 'user_offer',
+        'rideId': widget.rideId,
+        'price': price,
+        'userName': userState.name,
+      });
       setState(() {
         _latestUserPrice = price;
       });
@@ -1927,6 +1950,7 @@ class _BargainScreenState extends State<BargainScreen> {
                     'type': 'user_offer',
                     'rideId': widget.rideId,
                     'price': p,
+                    'userName': userState.name,
                   });
                   setState(() {
                     _latestUserPrice = p;
@@ -1953,6 +1977,7 @@ class _BargainScreenState extends State<BargainScreen> {
       'role': 'user',
       'price': price,
       'driverId': driverId,
+      'userName': userState.name,
     });
   }
 
@@ -2180,7 +2205,7 @@ class _BargainScreenState extends State<BargainScreen> {
                               ),
                               const SizedBox(height: 12),
                         const Text(
-                          "v1.0.5",
+                          "v1.0.6",
                           style: TextStyle(fontSize: 10, color: Colors.black26),
                         ),
                         const SizedBox(height: 10),

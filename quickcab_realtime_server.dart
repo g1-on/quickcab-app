@@ -61,13 +61,13 @@ Future<void> main() async {
   }
 
   void saveDbs() async {
-    await userFile.writeAsString(jsonEncode(userDb));
-    await driverFile.writeAsString(jsonEncode(driverDb));
-    await ridesFile.writeAsString(jsonEncode(ridesDb));
+    await userFile.writeAsString(jsonEncode(users));
+    await driverFile.writeAsString(jsonEncode(drivers));
+    await ridesFile.writeAsString(jsonEncode(rides));
   }
 
-  final users = <String, Map<String, dynamic>>{};
-  final drivers = <String, Map<String, dynamic>>{};
+  final users = Map<String, Map<String, dynamic>>.from(userDb);
+  final drivers = Map<String, Map<String, dynamic>>.from(driverDb);
   final rides = ridesDb; // Use persistent DB for rides too
   final socketDriverId = <WebSocket, String>{};
 
@@ -931,7 +931,7 @@ Future<void> main() async {
             final rideId = msg['rideId'];
             if (rideId is! String || rideId.isEmpty) return;
             msg['status'] = 'finding';
-            msg['vehicleType'] = msg['vehicleType'] ?? 'Uber Go';
+            msg['vehicleType'] = msg['vehicleType'] ?? 'QuickCab Go';
             msg['paymentMethod'] = msg['paymentMethod'] ?? 'Cash';
             msg['createdAt'] = DateTime.now().toIso8601String();
             msg['updatedAt'] = msg['createdAt'];

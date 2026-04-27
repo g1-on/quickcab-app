@@ -52,6 +52,9 @@ class WebSocketService {
   Stream<Map<String, dynamic>> get stream => _controller.stream;
 
   Timer? _reconnectTimer;
+  final List<Map<String, dynamic>> _queue = [];
+  bool _isConnected = false;
+
   void connect() {
     if (_channel != null) return;
     _doConnect();
@@ -62,6 +65,11 @@ class WebSocketService {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       _channel!.stream.listen(
         (data) {
+          if (!_isConnected) {
+            debugPrint("WS Connected!");
+            _isConnected = true;
+            _flushQueue();
+          }
           try {
             final msg = jsonDecode(data);
             debugPrint("WS IN: $msg");
@@ -89,11 +97,19 @@ class WebSocketService {
 
   void _handleDisconnect() {
     _channel = null;
+    _isConnected = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 3), () {
       debugPrint("WS Attempting Reconnect...");
       _doConnect();
     });
+  }
+
+  void _flushQueue() {
+    while (_queue.isNotEmpty && _isConnected) {
+      final data = _queue.removeAt(0);
+      send(data);
+    }
   }
 
   void syncDriverProfile() {
@@ -114,9 +130,12 @@ class WebSocketService {
   }
 
   void send(Map<String, dynamic> data) {
-    if (_channel != null) {
+    if (_isConnected && _channel != null) {
       debugPrint("WS OUT: $data");
       _channel!.sink.add(jsonEncode(data));
+    } else {
+      debugPrint("WS QUEUE: $data");
+      _queue.add(data);
     }
   }
 }
@@ -1035,7 +1054,7 @@ class _DriverHomeState extends State<DriverHome> {
                         ),
                         const SizedBox(height: 10),
                         const Text(
-                          "v1.0.5 - Connection Active",
+                          "v1.0.6 - Connection Active",
                           style: TextStyle(fontSize: 10, color: Colors.black26),
                         ),
                         const SizedBox(height: 20),

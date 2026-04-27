@@ -1,6 +1,6 @@
 # QuickCab Ride-Hailing Matrix
 
-An ultra-modern, pure-Dart realtime ecosystem mirroring a premium, minimalist Uber-style aesthetic. It contains a high-performance custom WebSocket orchestration layer, a Native App for the User, and an optimized App for the Driver.
+An ultra-modern, pure-Dart realtime ecosystem mirroring a premium, minimalist QuickCab-style aesthetic. It contains a high-performance custom WebSocket orchestration layer, a Native App for the User, and an optimized App for the Driver.
 
 ### The System Component Matrix
 This repository powers 3 interconnected applications:
