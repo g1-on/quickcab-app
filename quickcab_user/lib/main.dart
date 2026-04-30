@@ -43,7 +43,10 @@ String get apiUrl {
 // Global WebSocket Service
 final WebSocketService ws = WebSocketService();
 
-class WebSocketService {
+  /// RIDER REALTIME SERVICE
+  /// Manages the rider's connection to the QuickCab server.
+  /// Includes a reliability layer (queue) to prevent message loss during connection.
+  
   WebSocketChannel? _channel;
   final StreamController<Map<String, dynamic>> _controller =
       StreamController.broadcast();
@@ -51,6 +54,7 @@ class WebSocketService {
   String get userId => userState.userId;
   String get name => userState.name;
 
+  // Global stream of all events relevant to this rider
   Stream<Map<String, dynamic>> get stream => _controller.stream;
 
   Timer? _reconnectTimer;
@@ -1299,6 +1303,9 @@ class _BookingSheetState extends State<BookingSheet> {
     final String rideId =
         "${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(9999)}";
 
+    /// DISPATCH RIDE REQUEST
+    /// This initiates the "Finding Drivers" phase. The server will broadcast this
+    /// to all registered and online driver sockets.
     ws.send({
       'type': 'ride_request',
       'rideId': rideId,

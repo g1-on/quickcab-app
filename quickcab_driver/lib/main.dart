@@ -41,17 +41,25 @@ String get apiUrl {
 
 final WebSocketService ws = WebSocketService();
 
-class WebSocketService {
+  /// REALTIME COMMUNICATION SERVICE
+  /// Handles the persistent WebSocket connection, automatic reconnection,
+  /// and message queuing for the driver app.
+  
   WebSocketChannel? _channel;
   final StreamController<Map<String, dynamic>> _controller =
       StreamController.broadcast();
 
+  // Accessors for driver-specific state
   String get driverId => driverState.driverId;
   String get name => driverState.name;
 
+  // Stream used by the UI to listen for new ride requests or chat messages
   Stream<Map<String, dynamic>> get stream => _controller.stream;
 
   Timer? _reconnectTimer;
+  final List<Map<String, dynamic>> _queue = [];
+  bool _isConnected = false;
+
   void connect() {
     if (_channel != null) return;
     _doConnect();
@@ -62,6 +70,11 @@ class WebSocketService {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       _channel!.stream.listen(
         (data) {
+          if (!_isConnected) {
+            debugPrint("WS Connected!");
+            _isConnected = true;
+            _flushQueue();
+          }
           try {
             final msg = jsonDecode(data);
             debugPrint("WS IN: $msg");
@@ -89,6 +102,7 @@ class WebSocketService {
 
   void _handleDisconnect() {
     _channel = null;
+    _isConnected = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 3), () {
       debugPrint("WS Attempting Reconnect...");
@@ -96,6 +110,17 @@ class WebSocketService {
     });
   }
 
+  void _flushQueue() {
+    debugPrint("WS: Connection active. Flushing queued messages...");
+    while (_queue.isNotEmpty && _isConnected) {
+      final data = _queue.removeAt(0);
+      send(data);
+    }
+  }
+
+  /// Sends the driver's registration data to the server.
+  /// This must be called upon successful connection to ensure the driver
+  /// is visible to the Admin Panel and Rider apps.
   void syncDriverProfile() {
     // Register the driver to show up in Admin Panel
     send({
@@ -114,9 +139,12 @@ class WebSocketService {
   }
 
   void send(Map<String, dynamic> data) {
-    if (_channel != null) {
+    if (_isConnected && _channel != null) {
       debugPrint("WS OUT: $data");
       _channel!.sink.add(jsonEncode(data));
+    } else {
+      debugPrint("WS QUEUE: $data");
+      _queue.add(data);
     }
   }
 }

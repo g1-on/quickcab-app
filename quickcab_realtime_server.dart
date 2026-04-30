@@ -25,24 +25,35 @@ import 'dart:io';
 ///
 /// The server broadcasts ride_request to all online drivers.
 /// For a given rideId, messages are broadcast to all sockets that joined that ride.
+/// GLOBAL STATE & DATABASE
+/// These variables are stored at the top-level to ensure they are accessible 
+/// from all WebSocket handlers and helper functions.
+
+// Active connection rooms and socket tracking
 final rooms = <String, Set<WebSocket>>{};
 final driverSockets = <WebSocket>{};
 final acceptState = <String, Map<String, int>>{};
 
-// Persistent Storage
+// Persistent Database File Handles
 final userFile = File('users_db.json');
 final driverFile = File('drivers_db.json');
 final ridesFile = File('rides_db.json');
 
+// In-memory cache of the databases
 Map<String, dynamic> userDb = {};
 Map<String, dynamic> driverDb = {};
 Map<String, dynamic> ridesDb = {};
 
+// Strongly typed maps for runtime access
 late Map<String, Map<String, dynamic>> users;
 late Map<String, Map<String, dynamic>> drivers;
 late Map<String, dynamic> rides;
+
+// Mapping of WebSocket instances to their registered Driver IDs
 final socketDriverId = <WebSocket, String>{};
 
+/// Persists the current in-memory state to JSON files.
+/// Called whenever sensitive data (user/driver/ride info) is updated.
 void saveDbs() async {
   await userFile.writeAsString(jsonEncode(users));
   await driverFile.writeAsString(jsonEncode(drivers));
@@ -832,7 +843,11 @@ Future<void> main() async {
         final type = msg['type'];
         if (type is! String) return;
 
+        /// MESSAGE ROUTING LOGIC
+        /// The server identifies the message type and routes it to the appropriate handler.
         switch (type) {
+          
+          // USER REGISTRATION: Updates user profile and marks them as seen.
           case 'register_user':
             final userId = (msg['userId'] ?? '').toString();
             if (userId.isEmpty) return;
@@ -933,6 +948,7 @@ Future<void> main() async {
             }
             return;
 
+          // RIDE REQUEST: Triggered by a rider. Broadcasts the request to ALL online drivers.
           case 'ride_request':
             final rideId = msg['rideId'];
             if (rideId is! String || rideId.isEmpty) return;
