@@ -27,7 +27,7 @@ String get wsUrl {
     // If running on a hosted domain or specifically requested
     return 'wss://quickcab-matrix.onrender.com/ws';
   }
-  
+
   if (Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
   return 'ws://localhost:8081/ws';
 }
@@ -52,9 +52,6 @@ class WebSocketService {
   Stream<Map<String, dynamic>> get stream => _controller.stream;
 
   Timer? _reconnectTimer;
-  final List<Map<String, dynamic>> _queue = [];
-  bool _isConnected = false;
-
   void connect() {
     if (_channel != null) return;
     _doConnect();
@@ -65,11 +62,6 @@ class WebSocketService {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
       _channel!.stream.listen(
         (data) {
-          if (!_isConnected) {
-            debugPrint("WS Connected!");
-            _isConnected = true;
-            _flushQueue();
-          }
           try {
             final msg = jsonDecode(data);
             debugPrint("WS IN: $msg");
@@ -97,19 +89,11 @@ class WebSocketService {
 
   void _handleDisconnect() {
     _channel = null;
-    _isConnected = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(const Duration(seconds: 3), () {
       debugPrint("WS Attempting Reconnect...");
       _doConnect();
     });
-  }
-
-  void _flushQueue() {
-    while (_queue.isNotEmpty && _isConnected) {
-      final data = _queue.removeAt(0);
-      send(data);
-    }
   }
 
   void syncDriverProfile() {
@@ -130,12 +114,9 @@ class WebSocketService {
   }
 
   void send(Map<String, dynamic> data) {
-    if (_isConnected && _channel != null) {
+    if (_channel != null) {
       debugPrint("WS OUT: $data");
       _channel!.sink.add(jsonEncode(data));
-    } else {
-      debugPrint("WS QUEUE: $data");
-      _queue.add(data);
     }
   }
 }
@@ -178,7 +159,7 @@ class DriverProfileState {
     } else {
       await prefs.setString('driverId', driverId);
     }
-    
+
     name = prefs.getString('name') ?? name;
     email = prefs.getString('email') ?? email;
     vehicleModel = prefs.getString('vehicleModel') ?? vehicleModel;
@@ -247,11 +228,13 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    await driverState.init();
-    await notificationService.init();
+    await Future.wait([
+      Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      ),
+      driverState.init(),
+      notificationService.init(),
+    ]);
   } catch (e) {
     debugPrint("Firebase Init Error: $e");
   }
@@ -780,12 +763,9 @@ class _DriverHomeState extends State<DriverHome> {
       'vehicleModel': driverState.vehicleModel,
       'vehicleNumber': driverState.vehicleNumber,
     });
-    
+
     // Explicitly go online
-    ws.send({
-      'type': 'driver_online',
-      'driverId': ws.driverId,
-    });
+    ws.send({'type': 'driver_online', 'driverId': ws.driverId});
 
     _checkLocation();
     _determinePosition();
@@ -800,7 +780,7 @@ class _DriverHomeState extends State<DriverHome> {
           ),
         );
       }
-      
+
       if (msg['type'] == 'ride_request') {
         if (mounted) {
           setState(() {
@@ -913,14 +893,16 @@ class _DriverHomeState extends State<DriverHome> {
         children: [
           LiveMapWidget(
             initialCenter: _currentLocation ?? const LatLng(28.6139, 77.2100),
-            markers: _currentLocation != null ? [
-              Marker(
-                point: _currentLocation!,
-                width: 40,
-                height: 40,
-                child: const LocationRipple(),
-              )
-            ] : [],
+            markers: _currentLocation != null
+                ? [
+                    Marker(
+                      point: _currentLocation!,
+                      width: 40,
+                      height: 40,
+                      child: const LocationRipple(),
+                    ),
+                  ]
+                : [],
           ),
           Positioned(
             top: MediaQuery.of(context).padding.top + 10,
@@ -1041,10 +1023,10 @@ class _DriverHomeState extends State<DriverHome> {
                   ? Column(
                       mainAxisSize: MainAxisSize.min,
                       children: const [
-                        const SizedBox(height: 20),
+                        SizedBox(height: 20),
                         CircularProgressIndicator(color: Colors.black),
-                        const SizedBox(height: 20),
-                        const Text(
+                        SizedBox(height: 20),
+                        Text(
                           "Looking for rides near you...",
                           style: TextStyle(
                             fontSize: 16,
@@ -1052,12 +1034,12 @@ class _DriverHomeState extends State<DriverHome> {
                             color: Colors.black54,
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          "v1.0.6 - Connection Active",
+                        SizedBox(height: 10),
+                        Text(
+                          "v1.0.5 - Connection Active",
                           style: TextStyle(fontSize: 10, color: Colors.black26),
                         ),
-                        const SizedBox(height: 20),
+                        SizedBox(height: 20),
                       ],
                     )
                   : Column(
@@ -1411,6 +1393,8 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
   late StreamSubscription _sub;
 
   int _latestPrice = 0;
+  bool isUserTyping = false;
+  Timer? _typingTimer;
 
   @override
   void initState() {
@@ -1467,9 +1451,21 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
           });
           _scrollToBottom();
         }
+      } else if (msg['type'] == 'typing') {
+        if (mounted && msg['role'] == 'user') {
+          setState(() {
+            isUserTyping = msg['isTyping'] ?? false;
+          });
+        }
       } else if (msg['type'] == 'chat_message') {
         if (mounted) {
           if (msg['role'] == 'driver') return; // Already added locally
+          
+          notificationService.showNotification(
+            title: "Message from Passenger",
+            body: msg['text'],
+          );
+
           setState(() {
             msgs.add({
               "text": msg['text'],
@@ -1520,6 +1516,7 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
   @override
   void dispose() {
     _sub.cancel();
+    _typingTimer?.cancel();
     super.dispose();
   }
 
@@ -1564,11 +1561,7 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
       });
       // Show locally immediately for better UX
       setState(() {
-        msgs.add({
-          "text": text,
-          "me": true,
-          "from": "You",
-        });
+        msgs.add({"text": text, "me": true, "from": "You"});
       });
     }
     controller.clear();
@@ -1745,6 +1738,42 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
             ),
           ),
 
+          if (isUserTyping)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: Row(
+                children: [
+                  const Text(
+                    "User is typing",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  SizedBox(
+                    width: 20,
+                    child: TweenAnimationBuilder(
+                      tween: StepTween(begin: 0, end: 3),
+                      duration: const Duration(seconds: 1),
+                      builder: (context, int value, child) {
+                        return Text(
+                          "." * (value + 1),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        );
+                      },
+                      onEnd: () {},
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           if (isUserTurn)
             Padding(
               padding: const EdgeInsets.all(20),
@@ -1787,6 +1816,23 @@ class _DriverBargainScreenState extends State<DriverBargainScreen> {
                   child: TextField(
                     controller: controller,
                     keyboardType: TextInputType.text,
+                    onChanged: (val) {
+                      if (_typingTimer?.isActive ?? false) _typingTimer?.cancel();
+                      ws.send({
+                        'type': 'typing',
+                        'rideId': widget.rideId,
+                        'role': 'driver',
+                        'isTyping': true,
+                      });
+                      _typingTimer = Timer(const Duration(seconds: 2), () {
+                        ws.send({
+                          'type': 'typing',
+                          'rideId': widget.rideId,
+                          'role': 'driver',
+                          'isTyping': false,
+                        });
+                      });
+                    },
                     decoration: InputDecoration(
                       hintText: "Reply to user...",
                       filled: true,

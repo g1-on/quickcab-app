@@ -25,24 +25,139 @@ import 'dart:io';
 ///
 /// The server broadcasts ride_request to all online drivers.
 /// For a given rideId, messages are broadcast to all sockets that joined that ride.
+final rooms = <String, Set<WebSocket>>{};
+final driverSockets = <WebSocket>{};
+final acceptState = <String, Map<String, int>>{};
+
+// Persistent Storage
+final userFile = File('users_db.json');
+final driverFile = File('drivers_db.json');
+final ridesFile = File('rides_db.json');
+
+Map<String, dynamic> userDb = {};
+Map<String, dynamic> driverDb = {};
+Map<String, dynamic> ridesDb = {};
+
+late Map<String, Map<String, dynamic>> users;
+late Map<String, Map<String, dynamic>> drivers;
+late Map<String, dynamic> rides;
+final socketDriverId = <WebSocket, String>{};
+
+void saveDbs() async {
+  await userFile.writeAsString(jsonEncode(users));
+  await driverFile.writeAsString(jsonEncode(drivers));
+  await ridesFile.writeAsString(jsonEncode(rides));
+}
+
+Future<void> broadcastToRoom(String rideId, Map<String, dynamic> msg) async {
+  final room = rooms[rideId];
+  if (room == null) return;
+  final text = jsonEncode(msg);
+  for (final s in room.toList()) {
+    try {
+      s.add(text);
+    } catch (_) {
+      room.remove(s);
+    }
+  }
+}
+
+void broadcastToDrivers(Map<String, dynamic> msg) {
+  final text = jsonEncode(msg);
+  for (final s in driverSockets.toList()) {
+    try {
+      s.add(text);
+    } catch (_) {
+      driverSockets.remove(s);
+    }
+  }
+}
+
+Future<void> broadcastToAll(Map<String, dynamic> msg) async {
+  final text = jsonEncode(msg);
+  print("Broadcasting ${msg['type']} to ${driverSockets.length} drivers and ${rooms.length} rooms");
+  
+  // Broadcast to drivers
+  int driverSuccess = 0;
+  for (final s in driverSockets.toList()) {
+    try {
+      s.add(text);
+      driverSuccess++;
+    } catch (e) {
+      print("  Error sending to driver socket: $e");
+      driverSockets.remove(s);
+    }
+  }
+  if (driverSockets.isNotEmpty) print("  Sent to $driverSuccess/${driverSockets.length} drivers");
+
+  // Broadcast to everyone in rooms
+  for (final room in rooms.values) {
+    for (final s in room.toList()) {
+      try {
+        s.add(text);
+      } catch (_) {}
+    }
+  }
+}
+
+Future<void> bookRideIfMatched(
+  String rideId,
+  Map<String, int> state, {
+  String? targetDriverId,
+}) async {
+  final userPrice = state['user'];
+  if (userPrice == null) return;
+
+  String? winnerDriverId = targetDriverId;
+  int? winningPrice;
+
+  if (winnerDriverId != null) {
+    winningPrice = state[winnerDriverId];
+  } else {
+    // If no specific driver, check if any driver matches the user price
+    for (final entry in state.entries) {
+      if (entry.key != 'user' && entry.value == userPrice) {
+        winnerDriverId = entry.key;
+        winningPrice = entry.value;
+        break;
+      }
+    }
+  }
+
+  if (winnerDriverId == null ||
+      winningPrice == null ||
+      userPrice != winningPrice) {
+    return;
+  }
+
+  if (rides[rideId]?['status'] == 'booked') return;
+
+  final ride = rides[rideId];
+  final driver = drivers[winnerDriverId];
+
+  await broadcastToRoom(rideId, {
+    'type': 'ride_booked',
+    'rideId': rideId,
+    'price': winningPrice,
+    'driverId': winnerDriverId,
+    'driverName': driver?['name'],
+    'vehicleModel': driver?['vehicleModel'],
+    'vehicleNumber': driver?['vehicleNumber'],
+  });
+
+  if (ride != null) {
+    ride['status'] = 'booked';
+    ride['finalPrice'] = winningPrice;
+    ride['driverId'] = winnerDriverId;
+    ride['updatedAt'] = DateTime.now().toIso8601String();
+  }
+}
+
 Future<void> main() async {
   final port = int.tryParse(Platform.environment['PORT'] ?? '8081') ?? 8081;
   final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
   print('QuickCab realtime server listening on port $port');
   print('Admin panel: http://localhost:$port/admin');
-
-  final rooms = <String, Set<WebSocket>>{};
-  final driverSockets = <WebSocket>{};
-  final acceptState = <String, Map<String, int>>{};
-
-  // Persistent Storage
-  final userFile = File('users_db.json');
-  final driverFile = File('drivers_db.json');
-  final ridesFile = File('rides_db.json');
-
-  Map<String, dynamic> userDb = {};
-  Map<String, dynamic> driverDb = {};
-  Map<String, dynamic> ridesDb = {};
 
   if (await userFile.exists()) {
     try {
@@ -60,16 +175,9 @@ Future<void> main() async {
     } catch (_) {}
   }
 
-  void saveDbs() async {
-    await userFile.writeAsString(jsonEncode(users));
-    await driverFile.writeAsString(jsonEncode(drivers));
-    await ridesFile.writeAsString(jsonEncode(rides));
-  }
-
-  final users = Map<String, Map<String, dynamic>>.from(userDb);
-  final drivers = Map<String, Map<String, dynamic>>.from(driverDb);
-  final rides = ridesDb; // Use persistent DB for rides too
-  final socketDriverId = <WebSocket, String>{};
+  users = Map<String, Map<String, dynamic>>.from(userDb);
+  drivers = Map<String, Map<String, dynamic>>.from(driverDb);
+  rides = ridesDb; // Use persistent DB for rides too
 
   // Debug: List files in /web
   final webDir = Directory('web');
@@ -528,109 +636,7 @@ Future<void> main() async {
 </html>
 ''';
 
-  Future<void> broadcastToRoom(String rideId, Map<String, dynamic> msg) async {
-    final room = rooms[rideId];
-    if (room == null) return;
-    final text = jsonEncode(msg);
-    for (final s in room.toList()) {
-      try {
-        s.add(text);
-      } catch (_) {
-        room.remove(s);
-      }
-    }
-  }
 
-  void broadcastToDrivers(Map<String, dynamic> msg) {
-    final text = jsonEncode(msg);
-    for (final s in driverSockets.toList()) {
-      try {
-        s.add(text);
-      } catch (_) {
-        driverSockets.remove(s);
-      }
-    }
-  }
-
-  Future<void> broadcastToAll(Map<String, dynamic> msg) async {
-    final text = jsonEncode(msg);
-    print("Broadcasting ${msg['type']} to ${driverSockets.length} drivers and ${rooms.length} rooms");
-    
-    // Broadcast to drivers
-    int driverSuccess = 0;
-    for (final s in driverSockets.toList()) {
-      try {
-        s.add(text);
-        driverSuccess++;
-      } catch (e) {
-        print("  Error sending to driver socket: $e");
-        driverSockets.remove(s);
-      }
-    }
-    if (driverSockets.isNotEmpty) print("  Sent to $driverSuccess/${driverSockets.length} drivers");
-
-    // Broadcast to everyone in rooms
-    for (final room in rooms.values) {
-      for (final s in room.toList()) {
-        try {
-          s.add(text);
-        } catch (_) {}
-      }
-    }
-  }
-
-  Future<void> bookRideIfMatched(
-    String rideId,
-    Map<String, int> state, {
-    String? targetDriverId,
-  }) async {
-    final userPrice = state['user'];
-    if (userPrice == null) return;
-
-    String? winnerDriverId = targetDriverId;
-    int? winningPrice;
-
-    if (winnerDriverId != null) {
-      winningPrice = state[winnerDriverId];
-    } else {
-      // If no specific driver, check if any driver matches the user price
-      for (final entry in state.entries) {
-        if (entry.key != 'user' && entry.value == userPrice) {
-          winnerDriverId = entry.key;
-          winningPrice = entry.value;
-          break;
-        }
-      }
-    }
-
-    if (winnerDriverId == null ||
-        winningPrice == null ||
-        userPrice != winningPrice) {
-      return;
-    }
-
-    if (rides[rideId]?['status'] == 'booked') return;
-
-    final ride = rides[rideId];
-    final driver = drivers[winnerDriverId];
-
-    await broadcastToRoom(rideId, {
-      'type': 'ride_booked',
-      'rideId': rideId,
-      'price': winningPrice,
-      'driverId': winnerDriverId,
-      'driverName': driver?['name'],
-      'vehicleModel': driver?['vehicleModel'],
-      'vehicleNumber': driver?['vehicleNumber'],
-    });
-
-    if (ride != null) {
-      ride['status'] = 'booked';
-      ride['finalPrice'] = winningPrice;
-      ride['driverId'] = winnerDriverId;
-      ride['updatedAt'] = DateTime.now().toIso8601String();
-    }
-  }
 
   await for (final req in server) {
     print("REQUEST: ${req.method} ${req.uri.path}");
@@ -1278,6 +1284,17 @@ Future<void> main() async {
             // Optional: Clean up room
             rooms.remove(rideId);
             acceptState.remove(rideId);
+            return;
+
+          case 'typing':
+            final rideId = msg['rideId'];
+            if (rideId is! String || rideId.isEmpty) return;
+            await broadcastToRoom(rideId, {
+              'type': 'typing',
+              'rideId': rideId,
+              'role': msg['role'],
+              'isTyping': msg['isTyping'],
+            });
             return;
 
           default:

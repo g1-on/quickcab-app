@@ -223,11 +223,13 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    await userState.init();
-    await notificationService.init();
+    await Future.wait([
+      Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      ),
+      userState.init(),
+      notificationService.init(),
+    ]);
   } catch (e) {
     debugPrint("Firebase Init Error: $e");
     // Continue anyway to avoid white screen
@@ -1749,6 +1751,8 @@ class _BargainScreenState extends State<BargainScreen> {
   late StreamSubscription _sub;
 
   int _latestUserPrice = 0;
+  bool isDriverTyping = false;
+  Timer? _typingTimer;
 
   @override
   void initState() {
@@ -1858,6 +1862,12 @@ class _BargainScreenState extends State<BargainScreen> {
           );
           Navigator.pop(context);
         }
+      } else if (msg['type'] == 'typing') {
+        if (mounted && msg['role'] == 'driver') {
+          setState(() {
+            isDriverTyping = msg['isTyping'] ?? false;
+          });
+        }
       }
     });
 
@@ -1867,6 +1877,7 @@ class _BargainScreenState extends State<BargainScreen> {
   @override
   void dispose() {
     _sub.cancel();
+    _typingTimer?.cancel();
     super.dispose();
   }
 
@@ -2091,6 +2102,42 @@ class _BargainScreenState extends State<BargainScreen> {
             ),
           ),
 
+          if (isDriverTyping)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+              child: Row(
+                children: [
+                  const Text(
+                    "Driver is typing",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  SizedBox(
+                    width: 20,
+                    child: TweenAnimationBuilder(
+                      tween: StepTween(begin: 0, end: 3),
+                      duration: const Duration(seconds: 1),
+                      builder: (context, int value, child) {
+                        return Text(
+                          "." * (value + 1),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        );
+                      },
+                      onEnd: () {},
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           if (sortedOffers.isNotEmpty)
             Container(
               padding: const EdgeInsets.all(20),
@@ -2285,6 +2332,23 @@ class _BargainScreenState extends State<BargainScreen> {
                   child: TextField(
                     controller: controller,
                     keyboardType: TextInputType.text,
+                    onChanged: (val) {
+                      if (_typingTimer?.isActive ?? false) _typingTimer?.cancel();
+                      ws.send({
+                        'type': 'typing',
+                        'rideId': widget.rideId,
+                        'role': 'user',
+                        'isTyping': true,
+                      });
+                      _typingTimer = Timer(const Duration(seconds: 2), () {
+                        ws.send({
+                          'type': 'typing',
+                          'rideId': widget.rideId,
+                          'role': 'user',
+                          'isTyping': false,
+                        });
+                      });
+                    },
                     decoration: InputDecoration(
                       hintText: "Ask driver something...",
                       filled: true,
@@ -2699,10 +2763,11 @@ class _TrackingScreenState extends State<TrackingScreen> {
     _sub = ws.stream.listen((msg) {
       if (msg['rideId'] != widget.rideId) return;
       if (msg['type'] == 'driver_location') {
-        if (mounted)
+        if (mounted) {
           setState(() {
             progress = msg['progress'] ?? progress;
           });
+        }
       } else if (msg['type'] == 'ride_complete') {
         if (mounted) {
           Navigator.pushReplacement(
