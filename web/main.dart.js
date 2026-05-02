@@ -94132,7 +94132,7 @@ this.yh()},
 yh(){var s=0,r=A.I(t.H),q=1,p=[],o=this,n,m,l,k
 var $async$yh=A.J(function(a,b){if(a===1){p.push(b)
 s=q}for(;;)switch(s){case 0:q=3
-n=A.ho(B.c.iI(B.c.iI(B.c.iI(A.aNC(),"ws://","http://"),"wss://","https://"),"/ws","/api/history?driverId=$driverId"))
+n=A.ho(B.c.iI(B.c.iI(B.c.iI(A.aNC(),"ws://","http://"),"wss://","https://"),"/ws","/api/history?driverId=${driverState.driverId}"))
 s=6
 return A.C(A.b1w(n),$async$yh)
 case 6:m=b

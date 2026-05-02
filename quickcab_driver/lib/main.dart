@@ -2311,7 +2311,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
 
   Future<void> _fetchHistory() async {
     try {
-      final uri = Uri.parse(wsUrl.replaceFirst('ws://', 'http://').replaceFirst('wss://', 'https://').replaceFirst('/ws', '/api/history?driverId=\$driverId'));
+      final uri = Uri.parse(wsUrl.replaceFirst('ws://', 'http://').replaceFirst('wss://', 'https://').replaceFirst('/ws', '/api/history?driverId=\${driverState.driverId}'));
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         setState(() {

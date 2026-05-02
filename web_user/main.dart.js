@@ -96139,7 +96139,7 @@ this.yt()},
 yt(){var s=0,r=A.G(t.H),q=1,p=[],o=this,n,m,l,k
 var $async$yt=A.H(function(a,b){if(a===1){p.push(b)
 s=q}for(;;)switch(s){case 0:q=3
-n=A.hu(B.c.iP(B.c.iP(B.c.iP(A.aPM(),"ws://","http://"),"wss://","https://"),"/ws","/api/history?userId=$userId"))
+n=A.hu(B.c.iP(B.c.iP(B.c.iP(A.aPM(),"ws://","http://"),"wss://","https://"),"/ws","/api/history?userId=${userState.userId}"))
 s=6
 return A.z(A.b3S(n),$async$yt)
 case 6:m=b
