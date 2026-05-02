@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1296,13 +1297,17 @@ class DriverProfileScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          ...driverState.trips.map(
-            (trip) => _buildProfileItem(
-              context,
-              Icons.history_rounded,
-              "₹${trip['amount']}",
-              "${trip['route']} • ${trip['date']}",
-            ),
+          _buildProfileItem(
+            context,
+            Icons.history_rounded,
+            "Ride History",
+            "View your past trips",
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RideHistoryScreen()),
+              );
+            },
           ),
           const SizedBox(height: 32),
           const Text(
@@ -2283,6 +2288,77 @@ class _DriverRatingScreenState extends State<DriverRatingScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class RideHistoryScreen extends StatefulWidget {
+  const RideHistoryScreen({super.key});
+
+  @override
+  State<RideHistoryScreen> createState() => _RideHistoryScreenState();
+}
+
+class _RideHistoryScreenState extends State<RideHistoryScreen> {
+  List<dynamic> history = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHistory();
+  }
+
+  Future<void> _fetchHistory() async {
+    try {
+      final uri = Uri.parse(wsUrl.replaceFirst('ws://', 'http://').replaceFirst('wss://', 'https://').replaceFirst('/ws', '/api/history?driverId=\$driverId'));
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        setState(() {
+          history = jsonDecode(response.body);
+          isLoading = false;
+        });
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
+        title: const Text("Ride History", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+      ),
+      body: isLoading 
+          ? const Center(child: CircularProgressIndicator())
+          : history.isEmpty
+              ? const Center(child: Text("No rides recorded yet."))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: history.length,
+                  itemBuilder: (context, index) {
+                    final ride = history[index];
+                    return Card(
+                      color: const Color(0xFFF3F3F3),
+                      elevation: 0,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.all(16),
+                        title: Text("\${ride['pickup']} → \${ride['dropoff']}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text("Status: \${ride['status']}\nCompleted: \${ride['completedAt']}"),
+                        trailing: Text("₹\${ride['finalPrice']}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }

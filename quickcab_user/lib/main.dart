@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -47,7 +48,7 @@ class WebSocketService {
   /// RIDER REALTIME SERVICE
   /// Manages the rider's connection to the QuickCab server.
   /// Includes a reliability layer (queue) to prevent message loss during connection.
-  
+
   WebSocketChannel? _channel;
   final StreamController<Map<String, dynamic>> _controller =
       StreamController.broadcast();
@@ -159,7 +160,7 @@ class UserProfileState {
     } else {
       await prefs.setString('userId', userId);
     }
-    
+
     name = prefs.getString('name') ?? name;
     email = prefs.getString('email') ?? email;
     isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
@@ -227,9 +228,7 @@ void main() async {
 
   try {
     await Future.wait([
-      Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      ),
+      Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
       userState.init(),
       notificationService.init(),
     ]);
@@ -796,14 +795,16 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           LiveMapWidget(
             initialCenter: _currentLocation ?? const LatLng(28.6139, 77.2100),
-            markers: _currentLocation != null ? [
-              Marker(
-                point: _currentLocation!,
-                width: 40,
-                height: 40,
-                child: const LocationRipple(),
-              )
-            ] : [],
+            markers: _currentLocation != null
+                ? [
+                    Marker(
+                      point: _currentLocation!,
+                      width: 40,
+                      height: 40,
+                      child: const LocationRipple(),
+                    ),
+                  ]
+                : [],
           ),
           Positioned(
             top: MediaQuery.of(context).padding.top + 10,
@@ -1162,10 +1163,11 @@ class ProfileScreen extends StatelessWidget {
             context,
             Icons.history_rounded,
             "Ride History",
-            "24 recorded trips",
+            "View your past trips",
             onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Loading ride history...")),
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RideHistoryScreen()),
               );
             },
           ),
@@ -1299,7 +1301,9 @@ class _BookingSheetState extends State<BookingSheet> {
     }
     if (p == d) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Pickup and destination cannot be the same")),
+        const SnackBar(
+          content: Text("Pickup and destination cannot be the same"),
+        ),
       );
       return;
     }
@@ -1584,42 +1588,36 @@ class _BookingSheetState extends State<BookingSheet> {
     IconData icon,
     Color color,
   ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F3F3),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButtonFormField<String>(
-          value: controller.text.isEmpty ? null : controller.text,
-          icon: const Icon(Icons.arrow_drop_down, color: Colors.black),
-          decoration: InputDecoration(
-            hintText: hint,
-            prefixIcon: Icon(icon, color: color, size: 20),
-            border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(vertical: 16),
-          ),
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 15,
-            color: Colors.black,
-          ),
-          items: ["Agra", "Delhi", "Jaipur"].map((String city) {
-            return DropdownMenuItem<String>(
-              value: city,
-              child: Text(city),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 8),
+            Text(hint, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: ["Agra", "Delhi", "Jaipur"].map((city) {
+            final isSelected = controller.text == city;
+            return ChoiceChip(
+              label: Text(city),
+              selected: isSelected,
+              selectedColor: color.withOpacity(0.2),
+              onSelected: (selected) {
+                if (selected) {
+                  setState(() {
+                    controller.text = city;
+                  });
+                }
+              },
             );
           }).toList(),
-          onChanged: (String? newValue) {
-            if (newValue != null) {
-              setState(() {
-                controller.text = newValue;
-              });
-            }
-          },
         ),
-      ),
+      ],
     );
   }
 
@@ -1949,11 +1947,7 @@ class _BargainScreenState extends State<BargainScreen> {
       });
       // Show locally immediately for better UX
       setState(() {
-        msgs.add({
-          "text": text,
-          "me": true,
-          "from": "You",
-        });
+        msgs.add({"text": text, "me": true, "from": "You"});
       });
     }
     controller.clear();
@@ -2282,11 +2276,14 @@ class _BargainScreenState extends State<BargainScreen> {
                                 ],
                               ),
                               const SizedBox(height: 12),
-                        const Text(
-                          "v1.0.6",
-                          style: TextStyle(fontSize: 10, color: Colors.black26),
-                        ),
-                        const SizedBox(height: 10),
+                              const Text(
+                                "v1.0.6",
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.black26,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
                               Text(
                                 "${offer['vehicleModel']} • ${offer['vehicleNumber']}",
                                 style: TextStyle(
@@ -2364,7 +2361,8 @@ class _BargainScreenState extends State<BargainScreen> {
                     controller: controller,
                     keyboardType: TextInputType.text,
                     onChanged: (val) {
-                      if (_typingTimer?.isActive ?? false) _typingTimer?.cancel();
+                      if (_typingTimer?.isActive ?? false)
+                        _typingTimer?.cancel();
                       ws.send({
                         'type': 'typing',
                         'rideId': widget.rideId,
@@ -3051,6 +3049,77 @@ class _RatingScreenState extends State<RatingScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class RideHistoryScreen extends StatefulWidget {
+  const RideHistoryScreen({super.key});
+
+  @override
+  State<RideHistoryScreen> createState() => _RideHistoryScreenState();
+}
+
+class _RideHistoryScreenState extends State<RideHistoryScreen> {
+  List<dynamic> history = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchHistory();
+  }
+
+  Future<void> _fetchHistory() async {
+    try {
+      final uri = Uri.parse(wsUrl.replaceFirst('ws://', 'http://').replaceFirst('wss://', 'https://').replaceFirst('/ws', '/api/history?userId=\$userId'));
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        setState(() {
+          history = jsonDecode(response.body);
+          isLoading = false;
+        });
+      } else {
+        setState(() => isLoading = false);
+      }
+    } catch (e) {
+      setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
+        title: const Text("Ride History", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+      ),
+      body: isLoading 
+          ? const Center(child: CircularProgressIndicator())
+          : history.isEmpty
+              ? const Center(child: Text("No rides recorded yet."))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: history.length,
+                  itemBuilder: (context, index) {
+                    final ride = history[index];
+                    return Card(
+                      color: const Color(0xFFF3F3F3),
+                      elevation: 0,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.all(16),
+                        title: Text("\${ride['pickup']} → \${ride['dropoff']}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text("Status: \${ride['status']}\nCompleted: \${ride['completedAt']}"),
+                        trailing: Text("₹\${ride['finalPrice']}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }

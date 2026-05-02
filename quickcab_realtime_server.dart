@@ -846,7 +846,36 @@ Future<void> main() async {
       }
       return;
     }
-
+    if (req.uri.path == '/api/history' && req.method == 'GET') {
+      final userId = req.uri.queryParameters['userId'];
+      final driverId = req.uri.queryParameters['driverId'];
+      List<Map<String, dynamic>> results = [];
+      try {
+        if (userId != null && userId.isNotEmpty) {
+          final stmt = sqlDb.prepare('SELECT * FROM ride_history WHERE userId = ? ORDER BY completedAt DESC');
+          final rows = stmt.select([userId]);
+          for (final row in rows) {
+            results.add(row);
+          }
+          stmt.dispose();
+        } else if (driverId != null && driverId.isNotEmpty) {
+          final stmt = sqlDb.prepare('SELECT * FROM ride_history WHERE driverId = ? ORDER BY completedAt DESC');
+          final rows = stmt.select([driverId]);
+          for (final row in rows) {
+            results.add(row);
+          }
+          stmt.dispose();
+        }
+      } catch (e) {
+        print("History fetch error: \$e");
+      }
+      
+      req.response
+        ..statusCode = 200
+        ..write(jsonEncode(results))
+        ..close();
+      return;
+    }
 
 
     if (req.uri.path != '/ws') {
