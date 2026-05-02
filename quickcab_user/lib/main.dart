@@ -22,15 +22,15 @@ String get wsUrl {
   const envUrl = String.fromEnvironment('WS_URL');
   if (envUrl.isNotEmpty) return envUrl;
 
-  const isLive = bool.fromEnvironment('LIVE', defaultValue: false);
-  if (isLive || kReleaseMode) return 'wss://quickcab-matrix.onrender.com/ws';
-
-  if (kIsWeb) {
-    return 'wss://quickcab-matrix.onrender.com/ws';
+  const isLocal = bool.fromEnvironment('LOCAL', defaultValue: false);
+  if (isLocal) {
+    if (kIsWeb) return 'ws://localhost:8081/ws';
+    if (Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
+    return 'ws://localhost:8081/ws';
   }
-  
-  if (Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
-  return 'ws://localhost:8081/ws';
+
+  // Default to production for all builds (APK, Web, iOS)
+  return 'wss://quickcab-matrix.onrender.com/ws';
 }
 
 String get apiUrl {
@@ -43,6 +43,7 @@ String get apiUrl {
 // Global WebSocket Service
 final WebSocketService ws = WebSocketService();
 
+class WebSocketService {
   /// RIDER REALTIME SERVICE
   /// Manages the rider's connection to the QuickCab server.
   /// Includes a reliability layer (queue) to prevent message loss during connection.

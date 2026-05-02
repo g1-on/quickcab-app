@@ -20,16 +20,15 @@ String get wsUrl {
   const envUrl = String.fromEnvironment('WS_URL');
   if (envUrl.isNotEmpty) return envUrl;
 
-  const isLive = bool.fromEnvironment('LIVE', defaultValue: false);
-  if (isLive || kReleaseMode) return 'wss://quickcab-matrix.onrender.com/ws';
-
-  if (kIsWeb) {
-    // If running on a hosted domain or specifically requested
-    return 'wss://quickcab-matrix.onrender.com/ws';
+  const isLocal = bool.fromEnvironment('LOCAL', defaultValue: false);
+  if (isLocal) {
+    if (kIsWeb) return 'ws://localhost:8081/ws';
+    if (Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
+    return 'ws://localhost:8081/ws';
   }
 
-  if (Platform.isAndroid) return 'ws://10.0.2.2:8081/ws';
-  return 'ws://localhost:8081/ws';
+  // Default to production for all builds (APK, Web, iOS)
+  return 'wss://quickcab-matrix.onrender.com/ws';
 }
 
 String get apiUrl {
@@ -41,6 +40,7 @@ String get apiUrl {
 
 final WebSocketService ws = WebSocketService();
 
+class WebSocketService {
   /// REALTIME COMMUNICATION SERVICE
   /// Handles the persistent WebSocket connection, automatic reconnection,
   /// and message queuing for the driver app.
