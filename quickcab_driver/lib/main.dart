@@ -68,13 +68,11 @@ class WebSocketService {
   void _doConnect() {
     try {
       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+      _isConnected = true;
+      _flushQueue();
+
       _channel!.stream.listen(
         (data) {
-          if (!_isConnected) {
-            debugPrint("WS Connected!");
-            _isConnected = true;
-            _flushQueue();
-          }
           try {
             final msg = jsonDecode(data);
             debugPrint("WS IN: $msg");
