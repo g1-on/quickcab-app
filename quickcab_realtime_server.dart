@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-
+import 'package:sqlite3/sqlite3.dart';
 /// QuickCab realtime WebSocket server (no external dependencies).
 ///
 /// Run from project root:
@@ -38,6 +38,8 @@ final acceptState = <String, Map<String, int>>{};
 final userFile = File('users_db.json');
 final driverFile = File('drivers_db.json');
 final ridesFile = File('rides_db.json');
+
+late final Database sqlDb;
 
 // In-memory cache of the databases
 Map<String, dynamic> userDb = {};
@@ -169,6 +171,31 @@ Future<void> main() async {
   final server = await HttpServer.bind(InternetAddress.anyIPv4, port);
   print('QuickCab realtime server listening on port $port');
   print('Admin panel: http://localhost:$port/admin');
+
+  sqlDb = sqlite3.open('quickcab.db');
+  sqlDb.execute('''
+    CREATE TABLE IF NOT EXISTS ride_history (
+      id TEXT PRIMARY KEY,
+      pickup TEXT,
+      dropoff TEXT,
+      userId TEXT,
+      driverId TEXT,
+      vehicleType TEXT,
+      status TEXT,
+      finalPrice INTEGER,
+      completedAt TEXT
+    );
+  ''');
+  sqlDb.execute('''
+    CREATE TABLE IF NOT EXISTS payment_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      rideId TEXT,
+      driverId TEXT,
+      amount INTEGER,
+      paymentMethod TEXT,
+      timestamp TEXT
+    );
+  ''');
 
   if (await userFile.exists()) {
     try {
@@ -1252,6 +1279,36 @@ Future<void> main() async {
               if (finalPrice is num)
                 rides[rideId]!['finalPrice'] = finalPrice.toInt();
               rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
+
+              final r = rides[rideId]!;
+              try {
+                sqlDb.execute(
+                  'INSERT OR REPLACE INTO ride_history (id, pickup, dropoff, userId, driverId, vehicleType, status, finalPrice, completedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                  [
+                    rideId,
+                    r['pickup'] ?? '',
+                    r['drop'] ?? '',
+                    r['userId'] ?? '',
+                    r['driverId'] ?? '',
+                    r['vehicleType'] ?? '',
+                    r['status'] ?? '',
+                    r['finalPrice'] ?? 0,
+                    r['updatedAt'] ?? '',
+                  ],
+                );
+                sqlDb.execute(
+                  'INSERT INTO payment_history (rideId, driverId, amount, paymentMethod, timestamp) VALUES (?, ?, ?, ?, ?)',
+                  [
+                    rideId,
+                    r['driverId'] ?? '',
+                    r['finalPrice'] ?? 0,
+                    r['paymentMethod'] ?? 'Cash',
+                    r['updatedAt'] ?? '',
+                  ],
+                );
+              } catch (e) {
+                print("SQL Error: " + e.toString());
+              }
             }
             return;
 

@@ -1297,6 +1297,12 @@ class _BookingSheetState extends State<BookingSheet> {
       );
       return;
     }
+    if (p == d) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Pickup and destination cannot be the same")),
+      );
+      return;
+    }
 
     int price = int.tryParse(priceController.text) ?? getEstimatedFare();
     final String rideId =
@@ -1584,16 +1590,35 @@ class _BookingSheetState extends State<BookingSheet> {
         color: const Color(0xFFF3F3F3),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: TextField(
-        controller: controller,
-        onChanged: (_) => setState(() {}),
-        decoration: InputDecoration(
-          hintText: hint,
-          prefixIcon: Icon(icon, color: color, size: 20),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 16),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButtonFormField<String>(
+          value: controller.text.isEmpty ? null : controller.text,
+          icon: const Icon(Icons.arrow_drop_down, color: Colors.black),
+          decoration: InputDecoration(
+            hintText: hint,
+            prefixIcon: Icon(icon, color: color, size: 20),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(vertical: 16),
+          ),
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+            color: Colors.black,
+          ),
+          items: ["Agra", "Delhi", "Jaipur"].map((String city) {
+            return DropdownMenuItem<String>(
+              value: city,
+              child: Text(city),
+            );
+          }).toList(),
+          onChanged: (String? newValue) {
+            if (newValue != null) {
+              setState(() {
+                controller.text = newValue;
+              });
+            }
+          },
         ),
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
       ),
     );
   }

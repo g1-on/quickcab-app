@@ -3,16 +3,17 @@ FROM dart:stable AS build
 
 # Resolve app dependencies
 WORKDIR /app
-# Note: we only copy pubspec if we had one and dependencices, but for single-file servers:
+COPY pubspec.* ./
+RUN dart pub get
 COPY quickcab_realtime_server.dart .
 
 # AOT compile the server
 RUN dart compile exe quickcab_realtime_server.dart -o server
 
 # Build minimal final image
-FROM scratch
+FROM debian:bookworm-slim
 LABEL maintainer="QuickCab"
-COPY --from=build /runtime/ /
+RUN apt-get update && apt-get install -y libsqlite3-0 && rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/server /server
 COPY web /web
 COPY web_user /web_user
