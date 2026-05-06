@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:sqlite3/sqlite3.dart';
+
 /// QuickCab realtime WebSocket server (no external dependencies).
 ///
 /// Run from project root:
@@ -26,7 +27,7 @@ import 'package:sqlite3/sqlite3.dart';
 /// The server broadcasts ride_request to all online drivers.
 /// For a given rideId, messages are broadcast to all sockets that joined that ride.
 /// GLOBAL STATE & DATABASE
-/// These variables are stored at the top-level to ensure they are accessible 
+/// These variables are stored at the top-level to ensure they are accessible
 /// from all WebSocket handlers and helper functions.
 
 // Active connection rooms and socket tracking
@@ -88,8 +89,9 @@ void broadcastToDrivers(Map<String, dynamic> msg) {
 
 Future<void> broadcastToAll(Map<String, dynamic> msg) async {
   final text = jsonEncode(msg);
-  print("Broadcasting ${msg['type']} to ${driverSockets.length} drivers and ${rooms.length} rooms");
-  
+  print(
+      "Broadcasting ${msg['type']} to ${driverSockets.length} drivers and ${rooms.length} rooms");
+
   // Broadcast to drivers
   int driverSuccess = 0;
   for (final s in driverSockets.toList()) {
@@ -101,7 +103,8 @@ Future<void> broadcastToAll(Map<String, dynamic> msg) async {
       driverSockets.remove(s);
     }
   }
-  if (driverSockets.isNotEmpty) print("  Sent to $driverSuccess/${driverSockets.length} drivers");
+  if (driverSockets.isNotEmpty)
+    print("  Sent to $driverSuccess/${driverSockets.length} drivers");
 
   // Broadcast to everyone in rooms
   for (final room in rooms.values) {
@@ -674,8 +677,6 @@ Future<void> main() async {
 </html>
 ''';
 
-
-
   await for (final req in server) {
     print("REQUEST: ${req.method} ${req.uri.path}");
 
@@ -691,14 +692,20 @@ Future<void> main() async {
       var subPath = req.uri.path.replaceFirst('/driver', '');
       if (subPath == '' || subPath == '/') subPath = '/index.html';
       if (subPath.startsWith('/')) subPath = subPath.substring(1);
-      
+
       final file = File('/web/$subPath'); // Use absolute path in container
       if (await file.exists()) {
-        final contentType = subPath.endsWith('.html') ? 'text/html' : 
-                          subPath.endsWith('.js') ? 'application/javascript' :
-                          subPath.endsWith('.css') ? 'text/css' :
-                          subPath.endsWith('.png') ? 'image/png' : 
-                          subPath.endsWith('.wasm') ? 'application/wasm' : 'text/plain';
+        final contentType = subPath.endsWith('.html')
+            ? 'text/html'
+            : subPath.endsWith('.js')
+                ? 'application/javascript'
+                : subPath.endsWith('.css')
+                    ? 'text/css'
+                    : subPath.endsWith('.png')
+                        ? 'image/png'
+                        : subPath.endsWith('.wasm')
+                            ? 'application/wasm'
+                            : 'text/plain';
         req.response.headers.contentType = ContentType.parse(contentType);
         await file.openRead().pipe(req.response);
       } else {
@@ -706,12 +713,14 @@ Future<void> main() async {
         // Fallback to relative path if absolute fails
         final relFile = File('web/$subPath');
         if (await relFile.exists()) {
-           req.response.headers.contentType = ContentType.parse('text/html'); // guess
-           await relFile.openRead().pipe(req.response);
+          req.response.headers.contentType =
+              ContentType.parse('text/html'); // guess
+          await relFile.openRead().pipe(req.response);
         } else {
-           req.response.statusCode = HttpStatus.notFound;
-           req.response.write('Not found: $subPath (tried ${file.path} and ${relFile.path})');
-           await req.response.close();
+          req.response.statusCode = HttpStatus.notFound;
+          req.response.write(
+              'Not found: $subPath (tried ${file.path} and ${relFile.path})');
+          await req.response.close();
         }
       }
       continue;
@@ -722,51 +731,56 @@ Future<void> main() async {
       var subPath = req.uri.path.replaceFirst('/user', '');
       if (subPath == '' || subPath == '/') subPath = '/index.html';
       if (subPath.startsWith('/')) subPath = subPath.substring(1);
-      
+
       final file = File('/web_user/$subPath'); // Use absolute path in container
       if (await file.exists()) {
-        final contentType = subPath.endsWith('.html') ? 'text/html' : 
-                          subPath.endsWith('.js') ? 'application/javascript' :
-                          subPath.endsWith('.css') ? 'text/css' :
-                          subPath.endsWith('.png') ? 'image/png' : 
-                          subPath.endsWith('.wasm') ? 'application/wasm' : 'text/plain';
+        final contentType = subPath.endsWith('.html')
+            ? 'text/html'
+            : subPath.endsWith('.js')
+                ? 'application/javascript'
+                : subPath.endsWith('.css')
+                    ? 'text/css'
+                    : subPath.endsWith('.png')
+                        ? 'image/png'
+                        : subPath.endsWith('.wasm')
+                            ? 'application/wasm'
+                            : 'text/plain';
         req.response.headers.contentType = ContentType.parse(contentType);
         await file.openRead().pipe(req.response);
       } else {
         print("    [ERROR] File not found: ${file.path}");
         final relFile = File('web_user/$subPath');
         if (await relFile.exists()) {
-           req.response.headers.contentType = ContentType.parse('text/html');
-           await relFile.openRead().pipe(req.response);
+          req.response.headers.contentType = ContentType.parse('text/html');
+          await relFile.openRead().pipe(req.response);
         } else {
-           req.response.statusCode = HttpStatus.notFound;
-           req.response.write('Not found: $subPath (tried ${file.path} and ${relFile.path})');
-           await req.response.close();
+          req.response.statusCode = HttpStatus.notFound;
+          req.response.write(
+              'Not found: $subPath (tried ${file.path} and ${relFile.path})');
+          await req.response.close();
         }
       }
       continue;
     }
 
-
-
     if (req.uri.path == '/api/admin/state') {
       final usersList = users.values.toList()
         ..sort(
           (a, b) => (b['lastSeen'] ?? '').toString().compareTo(
-            (a['lastSeen'] ?? '').toString(),
-          ),
+                (a['lastSeen'] ?? '').toString(),
+              ),
         );
       final driversList = drivers.values.toList()
         ..sort(
           (a, b) => (b['lastSeen'] ?? '').toString().compareTo(
-            (a['lastSeen'] ?? '').toString(),
-          ),
+                (a['lastSeen'] ?? '').toString(),
+              ),
         );
       final ridesList = rides.values.toList()
         ..sort(
           (a, b) => (b['updatedAt'] ?? '').toString().compareTo(
-            (a['updatedAt'] ?? '').toString(),
-          ),
+                (a['updatedAt'] ?? '').toString(),
+              ),
         );
       req.response.headers.contentType = ContentType.json;
       req.response.write(
@@ -852,14 +866,16 @@ Future<void> main() async {
       List<Map<String, dynamic>> results = [];
       try {
         if (userId != null && userId.isNotEmpty) {
-          final stmt = sqlDb.prepare('SELECT * FROM ride_history WHERE userId = ? ORDER BY completedAt DESC');
+          final stmt = sqlDb.prepare(
+              'SELECT * FROM ride_history WHERE userId = ? ORDER BY completedAt DESC');
           final rows = stmt.select([userId]);
           for (final row in rows) {
             results.add(row);
           }
           stmt.dispose();
         } else if (driverId != null && driverId.isNotEmpty) {
-          final stmt = sqlDb.prepare('SELECT * FROM ride_history WHERE driverId = ? ORDER BY completedAt DESC');
+          final stmt = sqlDb.prepare(
+              'SELECT * FROM ride_history WHERE driverId = ? ORDER BY completedAt DESC');
           final rows = stmt.select([driverId]);
           for (final row in rows) {
             results.add(row);
@@ -869,14 +885,13 @@ Future<void> main() async {
       } catch (e) {
         print("History fetch error: \$e");
       }
-      
+
       req.response
         ..statusCode = 200
         ..write(jsonEncode(results))
         ..close();
       return;
     }
-
 
     if (req.uri.path != '/ws') {
       req.response.statusCode = HttpStatus.notFound;
@@ -902,7 +917,6 @@ Future<void> main() async {
         /// MESSAGE ROUTING LOGIC
         /// The server identifies the message type and routes it to the appropriate handler.
         switch (type) {
-          
           // USER REGISTRATION: Updates user profile and marks them as seen.
           case 'register_user':
             final userId = (msg['userId'] ?? '').toString();
@@ -937,12 +951,10 @@ Future<void> main() async {
             final phone = (msg['phone'] ?? '').toString().trim();
             final city = (msg['city'] ?? '').toString().trim();
             final vehicleModel = (msg['vehicleModel'] ?? '').toString().trim();
-            final vehicleNumber = (msg['vehicleNumber'] ?? '')
-                .toString()
-                .trim();
-            final licenseNumber = (msg['licenseNumber'] ?? '')
-                .toString()
-                .trim();
+            final vehicleNumber =
+                (msg['vehicleNumber'] ?? '').toString().trim();
+            final licenseNumber =
+                (msg['licenseNumber'] ?? '').toString().trim();
             if (name.isNotEmpty) current['name'] = name;
             if (email.isNotEmpty) current['email'] = email;
             if (phone.isNotEmpty) current['phone'] = phone;
@@ -955,9 +967,10 @@ Future<void> main() async {
             current['online'] = true; // Mark as online on registration
             current['lastSeen'] = DateTime.now().toIso8601String();
             drivers[driverId] = current;
-            
-            socket.add(jsonEncode({'type': 'register_ack', 'driverId': driverId}));
-            
+
+            socket.add(
+                jsonEncode({'type': 'register_ack', 'driverId': driverId}));
+
             // Push active 'finding' rides to the newly connected driver
             int pushedCount = 0;
             for (final r in rides.values) {
@@ -966,13 +979,14 @@ Future<void> main() async {
                 pushedCount++;
               }
             }
-            print("Driver $driverId registered/online. Pushed $pushedCount active rides.");
+            print(
+                "Driver $driverId registered/online. Pushed $pushedCount active rides.");
             return;
 
           case 'driver_online':
             driverSockets.add(socket);
-            final driverId = (msg['driverId'] ?? socketDriverId[socket] ?? '')
-                .toString();
+            final driverId =
+                (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
             if (driverId.isNotEmpty) {
               socketDriverId[socket] = driverId;
               final current =
@@ -993,8 +1007,8 @@ Future<void> main() async {
 
           case 'driver_offline':
             driverSockets.remove(socket);
-            final driverId = (msg['driverId'] ?? socketDriverId[socket] ?? '')
-                .toString();
+            final driverId =
+                (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
             if (driverId.isNotEmpty) {
               final current =
                   drivers[driverId] ?? <String, dynamic>{'driverId': driverId};
@@ -1052,8 +1066,8 @@ Future<void> main() async {
             if (rideId is! String || rideId.isEmpty) return;
             rooms.putIfAbsent(rideId, () => <WebSocket>{}).add(socket);
             if (role == 'driver') {
-              final driverId = (msg['driverId'] ?? socketDriverId[socket] ?? '')
-                  .toString();
+              final driverId =
+                  (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
               if (driverId.isNotEmpty && rides.containsKey(rideId)) {
                 rides[rideId]!['driverId'] = driverId;
                 rides[rideId]!['status'] = 'driver_joined';
@@ -1064,9 +1078,8 @@ Future<void> main() async {
               jsonEncode({
                 'type': 'joined',
                 'rideId': rideId,
-                'history': rides.containsKey(rideId)
-                    ? rides[rideId]!['logs']
-                    : [],
+                'history':
+                    rides.containsKey(rideId) ? rides[rideId]!['logs'] : [],
               }),
             );
             saveDbs();
@@ -1113,8 +1126,8 @@ Future<void> main() async {
 
             String key = 'user';
             if (type == 'driver_offer') {
-              key = (msg['driverId'] ?? socketDriverId[socket] ?? '')
-                  .toString();
+              key =
+                  (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
               if (key.isEmpty) return;
             }
 
@@ -1166,8 +1179,8 @@ Future<void> main() async {
             );
             String key = role;
             if (role == 'driver') {
-              key = (msg['driverId'] ?? socketDriverId[socket] ?? '')
-                  .toString();
+              key =
+                  (msg['driverId'] ?? socketDriverId[socket] ?? '').toString();
             } else if (role == 'user' && msg['driverId'] != null) {
               // User accepts a specific driver's offer
               key = 'user';
@@ -1222,8 +1235,8 @@ Future<void> main() async {
             ride['pickup'] = (msg['pickup'] ?? ride['pickup'] ?? '').toString();
             ride['drop'] = (msg['drop'] ?? ride['drop'] ?? '').toString();
             ride['userId'] = (msg['userId'] ?? ride['userId'] ?? '').toString();
-            ride['userPhone'] = (msg['userPhone'] ?? ride['userPhone'] ?? '')
-                .toString();
+            ride['userPhone'] =
+                (msg['userPhone'] ?? ride['userPhone'] ?? '').toString();
             if (msg['price'] is num) {
               ride['finalPrice'] = (msg['price'] as num).toInt();
             }
@@ -1267,8 +1280,7 @@ Future<void> main() async {
             if (rideId is! String ||
                 rideId.isEmpty ||
                 lat is! num ||
-                lng is! num)
-              return;
+                lng is! num) return;
             await broadcastToRoom(rideId, {
               'type': 'driver_location',
               'rideId': rideId,
@@ -1286,8 +1298,8 @@ Future<void> main() async {
                 'lng': lng.toDouble(),
               };
               if (msg['progress'] is num) {
-                rides[rideId]!['progress'] = (msg['progress'] as num)
-                    .toDouble();
+                rides[rideId]!['progress'] =
+                    (msg['progress'] as num).toDouble();
               }
               rides[rideId]!['updatedAt'] = DateTime.now().toIso8601String();
             }

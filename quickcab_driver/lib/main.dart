@@ -797,16 +797,7 @@ class _DriverHomeState extends State<DriverHome> {
     _checkLocation();
     _determinePosition();
     _sub = ws.stream.listen((msg) {
-      if (mounted) {
-        // Visual feedback that server is talking to us
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Server Message: ${msg['type']}"),
-            duration: const Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
+
 
       if (msg['type'] == 'ride_request') {
         if (mounted) {
